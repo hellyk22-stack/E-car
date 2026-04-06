@@ -25,6 +25,6 @@ const userSchema = new Schema({
         default: "active",
         enum: ["active", "inactive", "deleted"]
     }
-})
+}, { timestamps: true })
 
 module.exports = mongoose.model("users", userSchema)

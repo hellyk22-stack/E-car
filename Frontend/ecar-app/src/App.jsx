@@ -1,10 +1,10 @@
-import axios from 'axios'
+
 import AppRouter from './router/AppRouter'
 import { ToastContainer, Zoom } from 'react-toastify'
 import 'react-toastify/dist/ReactToastify.css'
 
 function App() {
-  axios.defaults.baseURL="http://localhost:3000"
+  // axios.defaults.baseURL="http://localhost:3000"
   return (
     <>
       <AppRouter />

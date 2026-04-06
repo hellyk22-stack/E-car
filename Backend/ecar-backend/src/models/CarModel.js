@@ -1,7 +1,26 @@
 const mongoose = require("mongoose")
 const Schema = mongoose.Schema
 
+const priceHistorySchema = new Schema({
+    price: {
+        type: Number,
+        required: true,
+    },
+    changedAt: {
+        type: Date,
+        default: Date.now,
+    },
+    changedBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "users",
+    },
+}, { _id: false })
+
 const carSchema = new Schema({
+    userId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "users"
+    },
     name: {
         type: String,
         required: true
@@ -17,6 +36,10 @@ const carSchema = new Schema({
     price: {
         type: Number,
         required: true
+    },
+    priceHistory: {
+        type: [priceHistorySchema],
+        default: []
     },
     mileage: {
         type: Number
@@ -36,7 +59,12 @@ const carSchema = new Schema({
         enum: ["Manual", "Automatic"]
     },
     rating: {
-        type: Number
+        type: Number,
+        default: 0
+    },
+    reviewCount: {
+        type: Number,
+        default: 0
     },
     image: {
         type: String
