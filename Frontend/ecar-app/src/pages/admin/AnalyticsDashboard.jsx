@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import axiosInstance from '../../utils/axiosInstance'
 import { getCarImage } from '../../utils/carImageUtils'
+import { downloadCsvReport } from '../../utils/downloadCsv'
 
 const FALLBACK = 'https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?w=300&q=80'
 
@@ -93,14 +94,24 @@ const PieChart = ({ items = [] }) => {
     )
 }
 
-const LeaderboardTable = ({ title, items = [], metricLabel }) => (
+const LeaderboardTable = ({ title, items = [], metricLabel, exportLabel, onExport }) => (
     <div className="rounded-[24px] border border-white/8 bg-white/[0.03] p-5">
         <div className="mb-4 flex items-end justify-between gap-3">
             <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-indigo-300">Leaderboard</p>
                 <h3 className="mt-1 text-2xl font-bold text-white" style={{ fontFamily: "'Syne', sans-serif", letterSpacing: '-0.03em' }}>{title}</h3>
             </div>
-            <p className="text-xs uppercase tracking-[0.18em] text-slate-500">{metricLabel}</p>
+            <div className="flex items-center gap-3">
+                {onExport && (
+                    <button
+                        onClick={onExport}
+                        className="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-white"
+                    >
+                        {exportLabel || 'Export CSV'}
+                    </button>
+                )}
+                <p className="text-xs uppercase tracking-[0.18em] text-slate-500">{metricLabel}</p>
+            </div>
         </div>
         <div className="space-y-3">
             {items.length === 0 && <p className="text-sm text-slate-400">No data yet.</p>}
@@ -238,7 +249,7 @@ const AnalyticsDashboard = () => {
                                     <h2 className="analytics-title mt-1 text-2xl text-white">Most Viewed Cars</h2>
                                     <p className="mt-2 text-sm text-slate-400">Top 10 car detail pages by view events.</p>
                                 </div>
-                                <div className="flex gap-2">
+                                <div className="flex flex-wrap gap-2">
                                     {['week', 'month'].map((period) => (
                                         <button
                                             key={period}
@@ -253,6 +264,12 @@ const AnalyticsDashboard = () => {
                                             {period}
                                         </button>
                                     ))}
+                                    <button
+                                        onClick={() => downloadCsvReport(`/analytics/most-viewed/export/csv?period=${mostViewedPeriod}`, `most-viewed-${mostViewedPeriod}.csv`)}
+                                        className="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-white"
+                                    >
+                                        Export CSV
+                                    </button>
                                 </div>
                             </div>
 
@@ -282,14 +299,30 @@ const AnalyticsDashboard = () => {
                             </div>
                         </div>
 
-                        <LeaderboardTable title="Wishlist Leaderboard" items={wishlistLeaderboard} metricLabel="Saves" />
+                        <LeaderboardTable
+                            title="Wishlist Leaderboard"
+                            items={wishlistLeaderboard}
+                            metricLabel="Saves"
+                            exportLabel="Export CSV"
+                            onExport={() => downloadCsvReport('/analytics/wishlist-leaderboard/export/csv', 'wishlist-leaderboard.csv')}
+                        />
                     </div>
 
                     <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
                         <div className="rounded-[24px] border border-white/8 bg-white/[0.03] p-5">
-                            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-pink-300">Demand Signals</p>
-                            <h2 className="analytics-title mt-1 text-2xl text-white">Search Keyword Tracker</h2>
-                            <p className="mt-2 text-sm text-slate-400">What buyers are filtering for most often this week.</p>
+                            <div className="flex flex-wrap items-end justify-between gap-3">
+                                <div>
+                                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-pink-300">Demand Signals</p>
+                                    <h2 className="analytics-title mt-1 text-2xl text-white">Search Keyword Tracker</h2>
+                                    <p className="mt-2 text-sm text-slate-400">What buyers are filtering for most often this week.</p>
+                                </div>
+                                <button
+                                    onClick={() => downloadCsvReport('/analytics/search-insights/export/csv?period=week', 'search-insights-week.csv')}
+                                    className="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-white"
+                                >
+                                    Export CSV
+                                </button>
+                            </div>
 
                             <div className="mt-6 grid gap-6 lg:grid-cols-3">
                                 <div>

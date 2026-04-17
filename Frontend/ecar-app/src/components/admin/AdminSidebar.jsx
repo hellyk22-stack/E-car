@@ -20,6 +20,8 @@ export const AdminSidebar = () => {
 
     const navItems = [
         { icon: "📈", label: "Analytics", path: "/admin/analytics" },
+        { icon: "👥", label: "Users", path: "/admin/users" },
+        { icon: "🔔", label: "System", path: "/admin/system" },
         { icon: "🚗", label: "Manage Cars", path: "/admin/managecars" },
     ]
 

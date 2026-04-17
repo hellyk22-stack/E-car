@@ -3,7 +3,7 @@ import React, { useState, useEffect } from "react"
 import { useForm } from "react-hook-form"
 import { useNavigate } from "react-router-dom"
 import { toast } from "react-toastify"
-import { isAuthenticated, getRole } from "../utils/auth"
+import { isAuthenticated, getDashboardRouteForRole, getRole } from "../utils/auth"
 
 export default function Signup() {
     const navigate = useNavigate()
@@ -13,7 +13,7 @@ export default function Signup() {
 
     useEffect(() => {
         if (isAuthenticated()) {
-            navigate(getRole() === "admin" ? "/admin/managecars" : "/user/search")
+            navigate(getDashboardRouteForRole(getRole()))
         }
     }, [navigate])
 
@@ -21,7 +21,14 @@ export default function Signup() {
 
     const onSubmit = async (data) => {
         try {
-            const res = await axiosInstance.post("/user/register", data)
+            const payload = {
+                ...data,
+                name: String(data.name || "").trim(),
+                email: String(data.email || "").trim().toLowerCase(),
+                password: String(data.password || ""),
+                confirmPassword: String(data.confirmPassword || ""),
+            }
+            const res = await axiosInstance.post("/user/register", payload)
             if (res.status === 201) {
                 toast.success("Account created! Please login. 🎉")
                 navigate("/login")

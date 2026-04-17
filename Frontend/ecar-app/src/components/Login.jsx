@@ -32,7 +32,12 @@ export default function Login() {
     const submitHandler = async (data) => {
         setSubmitting(true)
         try {
-            const res = await axiosInstance.post("/user/login", data)
+            const payload = {
+                ...data,
+                email: String(data.email || "").trim().toLowerCase(),
+                password: String(data.password || ""),
+            }
+            const res = await axiosInstance.post("/user/login", payload)
             const { token, role, name } = res.data
             localStorage.setItem("token", token)
             localStorage.setItem("role", role)

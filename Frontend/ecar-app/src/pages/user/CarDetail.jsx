@@ -6,14 +6,19 @@ import PriceHistoryChart from '../../components/user/PriceHistoryChart'
 import { getCarImage } from '../../utils/carImageUtils'
 import { logCarView } from '../../utils/analyticsEvents'
 import { addRecentlyViewedCar } from '../../utils/recentlyViewed'
-import { getToken, getUserId } from '../../utils/auth'
+import { getRole, getToken, getUserId, isAuthenticated } from '../../utils/auth'
 import { addCarToWishlist, isCarWishlisted, removeCarFromWishlist } from '../../utils/wishlistApi'
+import { fetchSubscriptionStatus, formatPlanName } from '../../utils/subscription'
+import TestDriveBookingModal from '../../components/bookings/TestDriveBookingModal'
 
 const fuelColor = { Petrol: '#f59e0b', Diesel: '#3b82f6', Electric: '#10b981' }
 const typeColor = { Hatchback: '#8b5cf6', Sedan: '#6366f1', SUV: '#ec4899', Luxury: '#f59e0b' }
 const defaultReviewForm = { rating: 5, title: '', comment: '' }
 const defaultFuelPriceByFuel = { Petrol: 102, Diesel: 90, Electric: 9 }
 const insuranceRateByType = { Hatchback: 0.026, Sedan: 0.029, SUV: 0.033, Luxury: 0.042 }
+const fuelInflationRate = 0.06
+const maintenanceInflationRate = 0.08
+const insuranceDepreciationRate = 0.9
 
 const formatCurrency = (value) => `Rs ${Math.round(value || 0).toLocaleString('en-IN')}`
 
@@ -54,9 +59,19 @@ const getMaintenanceRate = (car) => {
     return 0.018
 }
 
+const getEffectiveMileage = (car) => {
+    const mileage = Number(car?.mileage)
+
+    if (mileage > 0) return mileage
+    return car?.fuel === 'Electric' ? 6 : 14
+}
+
 const buildOwnershipProjection = (car, cityKmPerDay, fuelPrice) => {
     if (!car) {
         return {
+            annualDistance: 0,
+            effectiveMileage: 0,
+            annualFuelUnits: 0,
             annualFuelCost: 0,
             annualInsuranceCost: 0,
             annualMaintenanceCost: 0,
@@ -67,17 +82,18 @@ const buildOwnershipProjection = (car, cityKmPerDay, fuelPrice) => {
         }
     }
 
-    const effectiveMileage = Number(car.mileage) > 0 ? Number(car.mileage) : car.fuel === 'Electric' ? 6 : 14
+    const effectiveMileage = getEffectiveMileage(car)
     const annualDistance = Math.max(Number(cityKmPerDay || 0), 0) * 365
-    const annualFuelCost = (annualDistance / effectiveMileage) * Number(fuelPrice || 0)
+    const annualFuelUnits = effectiveMileage > 0 ? annualDistance / effectiveMileage : 0
+    const annualFuelCost = annualFuelUnits * Number(fuelPrice || 0)
     const annualInsuranceCost = Math.max(Number(car.price || 0) * (insuranceRateByType[car.type] || 0.03), 18000)
     const annualMaintenanceCost = Math.max(Number(car.price || 0) * getMaintenanceRate(car), 12000)
 
     const yearlyCosts = Array.from({ length: 5 }, (_, index) => {
         const year = index + 1
-        const fuel = annualFuelCost * Math.pow(1.06, index)
-        const insurance = annualInsuranceCost * Math.pow(1.04, index)
-        const maintenance = annualMaintenanceCost * Math.pow(1.08, index)
+        const fuel = annualFuelCost * Math.pow(fuelInflationRate + 1, index)
+        const insurance = annualInsuranceCost * Math.pow(insuranceDepreciationRate, index)
+        const maintenance = annualMaintenanceCost * Math.pow(maintenanceInflationRate + 1, index)
         const total = fuel + insurance + maintenance
 
         return { year, fuel, insurance, maintenance, total }
@@ -88,6 +104,9 @@ const buildOwnershipProjection = (car, cityKmPerDay, fuelPrice) => {
     const maxYearlyCost = Math.max(...yearlyCosts.map((item) => item.total), 1)
 
     return {
+        annualDistance,
+        effectiveMileage,
+        annualFuelUnits,
         annualFuelCost,
         annualInsuranceCost,
         annualMaintenanceCost,
@@ -108,6 +127,8 @@ const CarDetail = () => {
     const [imgError, setImgError] = useState(false)
     const [reviews, setReviews] = useState([])
     const [priceHistory, setPriceHistory] = useState([])
+    const [priceHistoryLocked, setPriceHistoryLocked] = useState(false)
+    const [subscription, setSubscription] = useState({ plan: 'explorer', limits: {} })
     const [reviewsLoading, setReviewsLoading] = useState(false)
     const [reviewSubmitting, setReviewSubmitting] = useState(false)
     const [reviewForm, setReviewForm] = useState(defaultReviewForm)
@@ -120,6 +141,7 @@ const CarDetail = () => {
         cityKmPerDay: 24,
         fuelPrice: '',
     })
+    const [bookingModalOpen, setBookingModalOpen] = useState(false)
 
     const currentUserId = getUserId()
     const canReview = !!getToken()
@@ -169,7 +191,7 @@ const CarDetail = () => {
                 fuel: car.fuel,
                 price: car.price,
                 image: car.image,
-                rating: car.rating,
+                rating: reviewRating,
             })
         }
     }, [car])
@@ -177,15 +199,38 @@ const CarDetail = () => {
     const refreshCarAndReviews = async () => {
         setLoading(true)
         try {
-            const [carRes, reviewsRes, priceHistoryRes] = await Promise.all([
+            const [carRes, status] = await Promise.all([
                 axiosInstance.get(`/car/car/${id}`),
-                axiosInstance.get(`/review/car/${id}`),
-                axiosInstance.get(`/car/car/${id}/price-history`),
+                fetchSubscriptionStatus().catch(() => ({ plan: 'explorer', limits: {} })),
             ])
+            setSubscription(status)
+
+            let reviewsData = []
+            let priceHistoryData = []
+
+            try {
+                const reviewsRes = await axiosInstance.get(`/review/car/${id}`)
+                reviewsData = reviewsRes.data.data || []
+            } catch (error) {
+                console.error('Review data unavailable', error)
+            }
+
+            if (status?.limits?.priceHistory) {
+                try {
+                    const priceHistoryRes = await axiosInstance.get(`/car/car/${id}/price-history`)
+                    priceHistoryData = priceHistoryRes.data.data || []
+                    setPriceHistoryLocked(false)
+                } catch (error) {
+                    setPriceHistoryLocked(error.response?.status === 403)
+                    console.error('Price history unavailable', error)
+                }
+            } else {
+                setPriceHistoryLocked(true)
+            }
 
             setCar(carRes.data.data)
-            setReviews(reviewsRes.data.data || [])
-            setPriceHistory(priceHistoryRes.data.data || [])
+            setReviews(reviewsData)
+            setPriceHistory(priceHistoryData)
         } catch (err) {
             console.error('Error fetching car detail data', err)
         } finally {
@@ -196,15 +241,30 @@ const CarDetail = () => {
     const refreshReviews = async () => {
         setReviewsLoading(true)
         try {
-            const [carRes, reviewsRes, priceHistoryRes] = await Promise.all([
-                axiosInstance.get(`/car/car/${id}`),
-                axiosInstance.get(`/review/car/${id}`),
-                axiosInstance.get(`/car/car/${id}/price-history`),
-            ])
+            const carRes = await axiosInstance.get(`/car/car/${id}`)
+            let reviewsData = []
+            let priceHistoryData = priceHistory
 
             setCar(carRes.data.data)
-            setReviews(reviewsRes.data.data || [])
-            setPriceHistory(priceHistoryRes.data.data || [])
+            try {
+                const reviewsRes = await axiosInstance.get(`/review/car/${id}`)
+                reviewsData = reviewsRes.data.data || []
+            } catch (error) {
+                console.error('Review refresh unavailable', error)
+            }
+
+            if (subscription?.limits?.priceHistory) {
+                try {
+                    const priceHistoryRes = await axiosInstance.get(`/car/car/${id}/price-history`)
+                    priceHistoryData = priceHistoryRes.data.data || []
+                    setPriceHistoryLocked(false)
+                } catch (error) {
+                    setPriceHistoryLocked(error.response?.status === 403)
+                }
+            }
+
+            setReviews(reviewsData)
+            setPriceHistory(priceHistoryData)
         } catch (err) {
             console.error('Error refreshing reviews', err)
             toast.error('Unable to refresh reviews right now.')
@@ -224,7 +284,7 @@ const CarDetail = () => {
             }
         } catch (err) {
             console.error('Wishlist toggle failed', err)
-            toast.error('Unable to update wishlist right now.')
+            toast.error(err.response?.data?.message || 'Unable to update wishlist right now.')
         }
     }
 
@@ -302,6 +362,21 @@ const CarDetail = () => {
         }))
     }
 
+    const handleOpenBookingModal = () => {
+        if (!isAuthenticated()) {
+            toast.info('Please log in to request a test drive.')
+            navigate(`/login?returnTo=${encodeURIComponent(`/user/car/${id}`)}`)
+            return
+        }
+
+        if (getRole() !== 'user') {
+            toast.info('Test drive booking is available from a user account.')
+            return
+        }
+
+        setBookingModalOpen(true)
+    }
+
     if (loading) {
         return (
             <div className="min-h-screen flex items-center justify-center" style={{ background: '#0a0a0f' }}>
@@ -333,6 +408,8 @@ const CarDetail = () => {
     const heroImg = imgError
         ? 'https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?w=800&q=80'
         : getCarImage(car)
+    const reviewRating = car.reviewRating ?? car.rating ?? 0
+    const safetyRating = car.safetyRating ?? car.rating ?? 0
 
     const specs = [
         { label: 'Engine', value: car.engine ? `${car.engine} cc` : '--' },
@@ -340,7 +417,8 @@ const CarDetail = () => {
         { label: 'Seating', value: car.seating ? `${car.seating} seats` : '--' },
         { label: 'Fuel Type', value: car.fuel || '--' },
         { label: 'Transmission', value: car.transmission || '--' },
-        { label: 'Rating', value: car.rating ? `${car.rating} / 5` : 'No ratings yet' },
+        { label: 'Safety Rating', value: `${safetyRating} / 5` },
+        { label: 'Review Rating', value: reviewRating ? `${reviewRating} / 5` : 'No reviews yet' },
         { label: 'Reviews', value: `${car.reviewCount || 0}` },
         { label: 'Brand', value: car.brand || '--' },
     ]
@@ -418,7 +496,7 @@ const CarDetail = () => {
                             {car.name}
                         </h1>
                         <p style={{ color: 'rgba(255,255,255,0.6)', fontFamily: "'DM Sans', sans-serif" }}>
-                            {car.brand} · {car.rating || 0}/5 rating · {car.reviewCount || 0} review{car.reviewCount === 1 ? '' : 's'}
+                            {car.brand} | {'\u2605'} {reviewRating}/5 review rating | {'\u{1F6E1}'} {safetyRating}/5 safety
                         </p>
                     </div>
                 </div>
@@ -442,7 +520,8 @@ const CarDetail = () => {
                     </div>
                     <div className="grid grid-cols-2 gap-3 sm:flex">
                         {[
-                            { label: 'Rating', value: `${car.rating || 0}/5` },
+                            { label: 'Review Rating', value: `${'\u2605'} ${reviewRating}/5` },
+                            { label: 'Safety Rating', value: `${'\u{1F6E1}'} ${safetyRating}/5` },
                             { label: 'Reviews', value: `${car.reviewCount || 0}` },
                         ].map((item) => (
                             <div
@@ -456,6 +535,13 @@ const CarDetail = () => {
                                 <p className="text-lg font-bold text-white" style={{ fontFamily: "'DM Sans', sans-serif" }}>{item.value}</p>
                             </div>
                         ))}
+                        <button
+                            onClick={handleOpenBookingModal}
+                            className="px-5 py-3 rounded-xl font-semibold text-sm"
+                            style={{ background: 'linear-gradient(135deg, #38bdf8, #2563eb)', color: 'white', fontFamily: "'DM Sans', sans-serif" }}
+                        >
+                            Book Test Drive
+                        </button>
                         <button
                             onClick={() => navigate('/user/compare')}
                             className="px-5 py-3 rounded-xl font-semibold text-sm"
@@ -521,14 +607,14 @@ const CarDetail = () => {
                                 </p>
                             </div>
                             <div className="p-5 rounded-2xl" style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.2)' }}>
-                                <p className="text-xs uppercase tracking-wider mb-1" style={{ color: '#6ee7b7', fontFamily: "'DM Sans', sans-serif" }}>Average Rating</p>
+                                <p className="text-xs uppercase tracking-wider mb-1" style={{ color: '#6ee7b7', fontFamily: "'DM Sans', sans-serif" }}>Review Rating</p>
                                 <p className="font-bold text-2xl" style={{ color: '#6ee7b7', fontFamily: "'DM Sans', sans-serif" }}>
-                                    {car.rating || 0}<span className="text-sm font-normal" style={{ color: 'rgba(255,255,255,0.45)' }}>/5</span>
+                                    {reviewRating}<span className="text-sm font-normal" style={{ color: 'rgba(255,255,255,0.45)' }}>/5</span>
                                 </p>
                             </div>
                             <div className="p-5 rounded-2xl" style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)' }}>
-                                <p className="text-xs uppercase tracking-wider mb-1" style={{ color: '#fcd34d', fontFamily: "'DM Sans', sans-serif" }}>Community Reviews</p>
-                                <p className="font-bold text-2xl text-white" style={{ fontFamily: "'DM Sans', sans-serif" }}>{car.reviewCount || 0}</p>
+                                <p className="text-xs uppercase tracking-wider mb-1" style={{ color: '#fcd34d', fontFamily: "'DM Sans', sans-serif" }}>Safety Rating</p>
+                                <p className="font-bold text-2xl text-white" style={{ fontFamily: "'DM Sans', sans-serif" }}>{'\u{1F6E1}'} {safetyRating}/5</p>
                             </div>
                         </div>
                     </div>
@@ -667,6 +753,21 @@ const CarDetail = () => {
 
                 {activeTab === 'price' && (
                     <div className="space-y-6">
+                        {priceHistoryLocked && (
+                            <div className="rounded-2xl border border-sky-300/20 bg-sky-400/10 p-5">
+                                <p className="text-sm font-semibold text-sky-100" style={{ fontFamily: "'DM Sans', sans-serif" }}>
+                                    Your {formatPlanName(subscription?.plan)} plan does not include the Price History Chart.
+                                </p>
+                                <button
+                                    onClick={() => navigate('/user/pricing')}
+                                    className="mt-4 rounded-xl bg-white px-4 py-2 text-sm font-semibold text-slate-950"
+                                    style={{ fontFamily: "'DM Sans', sans-serif" }}
+                                >
+                                    Upgrade to Pro Buyer
+                                </button>
+                            </div>
+                        )}
+
                         <div className="grid grid-cols-1 gap-6 lg:grid-cols-[0.9fr_1.1fr]">
                             <div className="rounded-2xl p-6" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
                                 <p className="text-xs uppercase tracking-[0.24em] mb-2" style={{ color: '#a5b4fc', fontFamily: "'DM Sans', sans-serif" }}>
@@ -695,7 +796,16 @@ const CarDetail = () => {
                                 </div>
                             </div>
 
-                            <PriceHistoryChart data={priceHistory.length ? priceHistory : [{ price: car.price, changedAt: new Date().toISOString() }]} />
+                            {priceHistoryLocked ? (
+                                <div className="rounded-2xl border border-white/8 bg-white/[0.03] p-6">
+                                    <p className="text-white font-semibold">Upgrade required</p>
+                                    <p className="mt-2 text-sm text-slate-400" style={{ fontFamily: "'DM Sans', sans-serif" }}>
+                                        Price history and trend tracking are available on Pro Buyer and Elite plans.
+                                    </p>
+                                </div>
+                            ) : (
+                                <PriceHistoryChart data={priceHistory.length ? priceHistory : [{ price: car.price, changedAt: new Date().toISOString() }]} />
+                            )}
                         </div>
                     </div>
                 )}
@@ -741,22 +851,26 @@ const CarDetail = () => {
                                     </div>
                                 </div>
 
-                                <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-3">
+                                <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2 2xl:grid-cols-3">
                                     {[
                                         { label: 'Annual fuel cost', value: ownershipProjection.annualFuelCost, color: '#f59e0b' },
-                                        { label: 'Insurance estimate', value: ownershipProjection.annualInsuranceCost, color: '#60a5fa' },
+                                        { label: 'Year 1 insurance', value: ownershipProjection.annualInsuranceCost, color: '#60a5fa' },
                                         { label: 'Maintenance estimate', value: ownershipProjection.annualMaintenanceCost, color: '#34d399' },
                                     ].map((item) => (
-                                        <div key={item.label} className="rounded-2xl p-4" style={{ background: `${item.color}12`, border: `1px solid ${item.color}33` }}>
+                                        <div key={item.label} className="min-w-0 rounded-2xl p-4" style={{ background: `${item.color}12`, border: `1px solid ${item.color}33` }}>
                                             <p className="text-[11px] uppercase tracking-[0.24em]" style={{ color: item.color, fontFamily: "'DM Sans', sans-serif" }}>
                                                 {item.label}
                                             </p>
-                                            <p className="mt-2 text-xl font-bold text-white" style={{ fontFamily: "'DM Sans', sans-serif" }}>
+                                            <p className="mt-2 break-words text-xl font-bold text-white" style={{ fontFamily: "'DM Sans', sans-serif" }}>
                                                 {formatCurrency(item.value)}
                                             </p>
                                         </div>
                                     ))}
                                 </div>
+
+                                <p className="mt-4 text-sm" style={{ color: 'rgba(255,255,255,0.52)', fontFamily: "'DM Sans', sans-serif", lineHeight: 1.7 }}>
+                                    Fuel estimate uses {Math.round(ownershipProjection.annualDistance).toLocaleString('en-IN')} km/year at {ownershipProjection.effectiveMileage.toLocaleString('en-IN')} {car.fuel === 'Electric' ? 'km per unit' : 'kmpl'}, which works out to about {ownershipProjection.annualFuelUnits.toFixed(1)} {car.fuel === 'Electric' ? 'units' : 'litres'} per year.
+                                </p>
 
                                 <div className="mt-5 rounded-2xl p-5" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
                                     <p className="text-xs uppercase tracking-[0.24em] mb-2" style={{ color: 'rgba(255,255,255,0.4)', fontFamily: "'DM Sans', sans-serif" }}>
@@ -817,7 +931,7 @@ const CarDetail = () => {
                                 <div className="mt-6 rounded-2xl p-5" style={{ background: 'linear-gradient(135deg, rgba(99,102,241,0.08), rgba(139,92,246,0.08))', border: '1px solid rgba(99,102,241,0.2)' }}>
                                     <p className="text-white font-bold mb-2">Why this matters</p>
                                     <p style={{ color: 'rgba(255,255,255,0.56)', fontFamily: "'DM Sans', sans-serif", lineHeight: 1.8 }}>
-                                        Buyers usually compare EMIs first, but fuel, insurance, and service costs can materially change the real ownership picture over five years.
+                                        Buyers usually compare EMIs first, but fuel, insurance, and service costs can materially change the real ownership picture over five years. Insurance is front-loaded here, so the first year stays highest and then eases as the car ages.
                                     </p>
                                 </div>
                             </div>
@@ -829,7 +943,7 @@ const CarDetail = () => {
                     <div className="space-y-6">
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                             {[
-                                { label: 'Average Rating', value: `${car.rating || 0}/5`, tone: 'rgba(16,185,129,0.08)', border: 'rgba(16,185,129,0.2)', color: '#6ee7b7' },
+                                { label: 'Review Rating', value: `${'\u2605'} ${reviewRating}/5`, tone: 'rgba(16,185,129,0.08)', border: 'rgba(16,185,129,0.2)', color: '#6ee7b7' },
                                 { label: 'Total Reviews', value: `${car.reviewCount || 0}`, tone: 'rgba(99,102,241,0.08)', border: 'rgba(99,102,241,0.2)', color: '#a5b4fc' },
                                 { label: 'Your Status', value: canReview ? (myReview ? 'Reviewed' : 'Ready to review') : 'Login required', tone: 'rgba(245,158,11,0.08)', border: 'rgba(245,158,11,0.2)', color: '#fcd34d' },
                             ].map((item) => (
@@ -1000,6 +1114,12 @@ const CarDetail = () => {
                     </button>
                 </div>
             </div>
+
+            <TestDriveBookingModal
+                open={bookingModalOpen}
+                onClose={() => setBookingModalOpen(false)}
+                car={car}
+            />
         </div>
     )
 }

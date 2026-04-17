@@ -62,6 +62,14 @@ const carSchema = new Schema({
         type: Number,
         default: 0
     },
+    reviewRating: {
+        type: Number,
+        default: 0
+    },
+    safetyRating: {
+        type: Number,
+        default: 0
+    },
     reviewCount: {
         type: Number,
         default: 0

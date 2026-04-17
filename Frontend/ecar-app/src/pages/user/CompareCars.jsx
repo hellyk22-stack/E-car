@@ -1,376 +1,485 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { toast } from 'react-toastify'
 import axiosInstance from '../../utils/axiosInstance'
 import CarCard from '../../components/user/CarCard'
-
-const compareMetrics = [
-  { key: 'price', label: 'Price', preference: 'lower', formatter: (value) => `Rs ${Number(value || 0).toLocaleString('en-IN')}` },
-  { key: 'mileage', label: 'Mileage', preference: 'higher', formatter: (value) => `${value || 0} kmpl` },
-  { key: 'engine', label: 'Engine', preference: 'higher', formatter: (value) => `${value || 0} cc` },
-  { key: 'seating', label: 'Seating', preference: 'higher', formatter: (value) => `${value || 0}` },
-  { key: 'rating', label: 'Rating', preference: 'higher', formatter: (value) => `${value || 0}/5` },
-  { key: 'reviewCount', label: 'Reviews', preference: 'higher', formatter: (value) => `${value || 0}` },
-]
+import { EXPLORER_FALLBACK, fetchSubscriptionStatus, formatPlanName } from '../../utils/subscription'
 
 const comparisonRows = [
-  ['Brand', 'brand'],
-  ['Type', 'type'],
-  ['Price', 'price'],
-  ['Mileage', 'mileage'],
-  ['Engine', 'engine'],
-  ['Fuel', 'fuel'],
-  ['Transmission', 'transmission'],
-  ['Seating', 'seating'],
-  ['Rating', 'rating'],
-  ['Reviews', 'reviewCount'],
+    ['Brand', 'brand'],
+    ['Type', 'type'],
+    ['Price', 'price'],
+    ['Mileage', 'mileage'],
+    ['Engine', 'engine'],
+    ['Fuel', 'fuel'],
+    ['Transmission', 'transmission'],
+    ['Seating', 'seating'],
+    ['Safety Rating', 'safetyRating'],
+    ['Review Rating', 'reviewRating'],
+    ['Reviews', 'reviewCount'],
 ]
 
-const radarMetrics = [
-  { key: 'price', label: 'Value', preference: 'lower' },
-  { key: 'mileage', label: 'Mileage', preference: 'higher' },
-  { key: 'engine', label: 'Engine', preference: 'higher' },
-  { key: 'rating', label: 'Rating', preference: 'higher' },
-  { key: 'reviewCount', label: 'Reviews', preference: 'higher' },
-]
+const numericMetrics = {
+    price: 'lower',
+    mileage: 'higher',
+    engine: 'higher',
+    seating: 'higher',
+    safetyRating: 'higher',
+    reviewRating: 'higher',
+    reviewCount: 'higher',
+}
 
-const radarColors = [
-  { stroke: '#60a5fa', fill: 'rgba(96,165,250,0.18)' },
-  { stroke: '#a78bfa', fill: 'rgba(167,139,250,0.18)' },
-  { stroke: '#34d399', fill: 'rgba(52,211,153,0.18)' },
-]
+const getCarId = (car) => car?._id || car?.id
 
 const numericValue = (car, key) => {
-  const raw = car?.[key]
-  if (typeof raw === 'number') return raw
-  const parsed = parseFloat(String(raw ?? '').replace(/[^\d.]/g, ''))
-  return Number.isFinite(parsed) ? parsed : 0
+    const parsed = Number(String(car?.[key] ?? 0).replace(/[^\d.]/g, ''))
+    return Number.isFinite(parsed) ? parsed : 0
+}
+
+const formatCompareValue = (car, key) => {
+    if (key === 'price') return `${'\u20B9'} ${Number(car[key] || 0).toLocaleString('en-IN')}`
+    if (key === 'mileage') return `${car[key] || 0} kmpl`
+    if (key === 'engine') return `${numericValue(car, key)} cc`
+    if (key === 'safetyRating') return `${'\u{1F6E1}'} ${car[key] || 0}/5`
+    if (key === 'reviewRating') return `${'\u2605'} ${car[key] || 0}/5`
+    if (key === 'reviewCount') return `${car[key] || 0}`
+    return car[key] || '--'
+}
+
+const getWinnerIds = (cars, key) => {
+    const preference = numericMetrics[key]
+    if (!preference) return []
+
+    const values = cars.map((car) => ({ id: getCarId(car), value: numericValue(car, key) }))
+    const bestValue = preference === 'lower'
+        ? Math.min(...values.map((item) => item.value))
+        : Math.max(...values.map((item) => item.value))
+
+    return values.filter((item) => item.value === bestValue).map((item) => item.id)
+}
+
+const buildProsCons = (cars) => {
+    const minPrice = Math.min(...cars.map((car) => numericValue(car, 'price')))
+    const maxMileage = Math.max(...cars.map((car) => numericValue(car, 'mileage')))
+    const maxSafety = Math.max(...cars.map((car) => numericValue(car, 'safetyRating')))
+    const maxReview = Math.max(...cars.map((car) => numericValue(car, 'reviewRating')))
+
+    return cars.map((car) => {
+        const pros = []
+        const cons = []
+
+        if (numericValue(car, 'price') === minPrice) pros.push('Lowest price in this shortlist')
+        if (numericValue(car, 'mileage') === maxMileage) pros.push('Best mileage for daily running')
+        if (numericValue(car, 'safetyRating') === maxSafety) pros.push('Strongest safety score here')
+        if (numericValue(car, 'reviewRating') === maxReview) pros.push('Best owner review rating here')
+        if (!pros.length) pros.push('Balanced option across key ownership factors')
+
+        if (numericValue(car, 'price') > minPrice) cons.push('Costs more than the cheapest option')
+        if (numericValue(car, 'safetyRating') < maxSafety) cons.push('Not the top safety-rated choice')
+        if (numericValue(car, 'reviewRating') < maxReview) cons.push('Owner review score trails the leader')
+        if (!cons.length) cons.push('Few obvious trade-offs in this comparison')
+
+        return {
+            carId: getCarId(car),
+            pros,
+            cons,
+        }
+    })
+}
+
+const buildSmartCompareAnalysis = (cars) => {
+    const minPrice = Math.min(...cars.map((car) => numericValue(car, 'price')))
+    const maxSafety = Math.max(...cars.map((car) => numericValue(car, 'safetyRating')))
+    const maxReview = Math.max(...cars.map((car) => numericValue(car, 'reviewRating')))
+
+    const scoredCars = cars.map((car) => ({
+        car,
+        score:
+            numericValue(car, 'reviewRating') * 10 +
+            numericValue(car, 'safetyRating') * 9 +
+            numericValue(car, 'mileage') +
+            numericValue(car, 'engine') / 50 -
+            numericValue(car, 'price') / 100000,
+    }))
+    const recommendation = scoredCars.sort((a, b) => b.score - a.score)[0]?.car
+
+    return {
+        summary: recommendation
+            ? `${recommendation.name} comes out strongest overall with the best blend of value, safety, and owner feedback in this shortlist.`
+            : 'These cars are closely matched across the selected specs.',
+        highlights: cars.map((car) => ({
+            carId: getCarId(car),
+            label: numericValue(car, 'price') === minPrice
+                ? 'Budget pick'
+                : numericValue(car, 'safetyRating') === maxSafety
+                    ? 'Safety leader'
+                    : numericValue(car, 'reviewRating') === maxReview
+                        ? 'Best reviewed'
+                        : 'Balanced option',
+            text: `${formatCompareValue(car, 'safetyRating')} safety and ${formatCompareValue(car, 'reviewRating')} review rating.`,
+        })),
+        prosCons: buildProsCons(cars),
+        verdict: recommendation
+            ? `Choose ${recommendation.name} if you want the most rounded package in this comparison.`
+            : 'Pick the model that best matches your budget and usage needs.',
+    }
 }
 
 const CompareCars = () => {
-  const [allCars, setAllCars] = useState([])
-  const [sortBy, setSortBy] = useState('price')
-  const [selected, setSelected] = useState([])
-  const [showTable, setShowTable] = useState(false)
-  const [loading, setLoading] = useState(false)
-  const comparisonRef = useRef(null)
+    const navigate = useNavigate()
+    const [allCars, setAllCars] = useState([])
+    const [selected, setSelected] = useState([])
+    const [sortBy, setSortBy] = useState('price')
+    const [loading, setLoading] = useState(true)
+    const [compareLoading, setCompareLoading] = useState(false)
+    const [subscription, setSubscription] = useState(EXPLORER_FALLBACK)
+    const [comparison, setComparison] = useState(null)
+    const [compareNotice, setCompareNotice] = useState('')
+    const comparisonRef = useRef(null)
 
-  useEffect(() => {
-    fetchAllCars()
-  }, [])
-
-  useEffect(() => {
-    if (showTable && comparisonRef.current) {
-      const top = comparisonRef.current.getBoundingClientRect().top + window.scrollY - 88
-      window.scrollTo({ top: Math.max(top, 0), behavior: 'auto' })
-    }
-  }, [showTable, selected.length, sortBy])
-
-  const compareSort = (a, b) => {
-    if (sortBy === 'price') return numericValue(a, 'price') - numericValue(b, 'price')
-    if (sortBy === 'mileage') return numericValue(b, 'mileage') - numericValue(a, 'mileage')
-    if (sortBy === 'rating') return numericValue(b, 'rating') - numericValue(a, 'rating')
-    if (sortBy === 'engine') return numericValue(b, 'engine') - numericValue(a, 'engine')
-    return 0
-  }
-
-  const fetchAllCars = async () => {
-    setLoading(true)
-    try {
-      const res = await axiosInstance.get('/car/cars')
-      setAllCars(res.data.data || [])
-    } catch (err) {
-      console.log('error fetching cars', err)
-    }
-    setLoading(false)
-  }
-
-  const sortedCars = useMemo(() => [...allCars].sort(compareSort), [allCars, sortBy])
-  const sortedSelected = useMemo(() => [...selected].sort(compareSort), [selected, sortBy])
-
-  const handleSelect = (car) => {
-    if (selected.find((item) => item._id === car._id)) {
-      setSelected(selected.filter((item) => item._id !== car._id))
-      return
-    }
-
-    if (selected.length >= 3) {
-      toast.info('You can compare up to 3 cars at a time.')
-      return
-    }
-
-    setSelected([...selected, car])
-  }
-
-  const showComparison = () => {
-    if (selected.length < 2) {
-      toast.info('Select at least 2 cars to compare.')
-      return
-    }
-
-    setShowTable(true)
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        if (comparisonRef.current) {
-          const top = comparisonRef.current.getBoundingClientRect().top + window.scrollY - 88
-          window.scrollTo({ top: Math.max(top, 0), behavior: 'auto' })
-        }
-      })
-    })
-  }
-
-  const resetComparison = () => {
-    setShowTable(false)
-    setSelected([])
-  }
-
-  const formatCompareValue = (car, key) => {
-    if (key === 'price') return `Rs ${Number(car[key] || 0).toLocaleString('en-IN')}`
-    if (key === 'mileage') return `${car[key] || 0} kmpl`
-    if (key === 'engine') return `${numericValue(car, key)} cc`
-    if (key === 'rating') return `${car[key] || 0}/5`
-    if (key === 'reviewCount') return `${car[key] || 0}`
-    return car[key] || '--'
-  }
-
-  const getWinnerIds = (key) => {
-    const metric = compareMetrics.find((item) => item.key === key)
-    if (!metric || sortedSelected.length < 2) return []
-
-    const values = sortedSelected.map((car) => ({ id: car._id, value: numericValue(car, key) }))
-    const comparable = values.filter((item) => Number.isFinite(item.value))
-    if (!comparable.length) return []
-
-    const bestValue = metric.preference === 'lower'
-      ? Math.min(...comparable.map((item) => item.value))
-      : Math.max(...comparable.map((item) => item.value))
-
-    return comparable.filter((item) => item.value === bestValue).map((item) => item.id)
-  }
-
-  const radarData = useMemo(() => {
-    if (sortedSelected.length < 2) return []
-
-    return sortedSelected.map((car, index) => {
-      const points = radarMetrics.map((metric, metricIndex) => {
-        const values = sortedSelected.map((item) => numericValue(item, metric.key))
-        const min = Math.min(...values)
-        const max = Math.max(...values)
-        let normalized = 1
-
-        if (max !== min) {
-          if (metric.preference === 'lower') {
-            normalized = (max - numericValue(car, metric.key)) / (max - min)
-          } else {
-            normalized = (numericValue(car, metric.key) - min) / (max - min)
-          }
+    useEffect(() => {
+        const bootstrap = async () => {
+            setLoading(true)
+            try {
+                const carsRes = await axiosInstance.get('/car/cars')
+                const status = await fetchSubscriptionStatus()
+                setAllCars(carsRes.data.data || [])
+                setSubscription(status)
+            } catch (error) {
+                toast.error('Unable to load compare tools right now.')
+            } finally {
+                setLoading(false)
+            }
         }
 
-        const radius = 42 + normalized * 84
-        const angle = ((Math.PI * 2) / radarMetrics.length) * metricIndex - Math.PI / 2
-        const x = 150 + radius * Math.cos(angle)
-        const y = 150 + radius * Math.sin(angle)
+        bootstrap()
+    }, [])
 
-        return { x, y }
-      })
+    useEffect(() => {
+        if (comparison && comparisonRef.current) {
+            const top = comparisonRef.current.getBoundingClientRect().top + window.scrollY - 88
+            window.scrollTo({ top: Math.max(top, 0), behavior: 'smooth' })
+        }
+    }, [comparison])
 
-      return {
-        car,
-        colors: radarColors[index],
-        polygon: points.map((point) => `${point.x},${point.y}`).join(' '),
-      }
-    })
-  }, [sortedSelected])
+    const sortedCars = useMemo(() => {
+        const items = [...allCars]
+        if (sortBy === 'price') return items.sort((a, b) => numericValue(a, 'price') - numericValue(b, 'price'))
+        if (sortBy === 'mileage') return items.sort((a, b) => numericValue(b, 'mileage') - numericValue(a, 'mileage'))
+        if (sortBy === 'reviewRating') return items.sort((a, b) => numericValue(b, 'reviewRating') - numericValue(a, 'reviewRating'))
+        if (sortBy === 'safetyRating') return items.sort((a, b) => numericValue(b, 'safetyRating') - numericValue(a, 'safetyRating'))
+        if (sortBy === 'engine') return items.sort((a, b) => numericValue(b, 'engine') - numericValue(a, 'engine'))
+        return items
+    }, [allCars, sortBy])
 
-  const axisPoints = radarMetrics.map((metric, metricIndex) => {
-    const angle = ((Math.PI * 2) / radarMetrics.length) * metricIndex - Math.PI / 2
-    return {
-      label: metric.label,
-      x: 150 + 118 * Math.cos(angle),
-      y: 150 + 118 * Math.sin(angle),
-      labelX: 150 + 136 * Math.cos(angle),
-      labelY: 150 + 136 * Math.sin(angle),
+    const smartCompareLimit = subscription?.limits?.smartCompareLimit || EXPLORER_FALLBACK.limits.smartCompareLimit
+    const resultCars = comparison?.cars || []
+
+    const handleSelect = (car) => {
+        setComparison(null)
+        setCompareNotice('')
+        setSelected((prev) => prev.some((item) => item._id === car._id)
+            ? prev.filter((item) => item._id !== car._id)
+            : [...prev, car])
     }
-  })
 
-  const gridPolygons = [0.25, 0.5, 0.75, 1].map((ratio) => radarMetrics.map((_, metricIndex) => {
-    const angle = ((Math.PI * 2) / radarMetrics.length) * metricIndex - Math.PI / 2
-    const radius = 42 + ratio * 84
-    return `${150 + radius * Math.cos(angle)},${150 + radius * Math.sin(angle)}`
-  }).join(' '))
+    const runComparison = async () => {
+        if (selected.length < 2) {
+            toast.info('Select at least 2 cars to compare.')
+            return
+        }
 
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-900 px-4 py-10 text-slate-100">
-      <div className="mx-auto max-w-6xl">
-        <h2 className="mb-2 text-3xl font-bold text-white md:text-4xl">Compare Cars</h2>
-        <p className="mb-6 text-slate-300">Select up to 3 cars, compare them side by side, and spot the winners instantly.</p>
+        try {
+            setCompareLoading(true)
+            const latestStatus = await fetchSubscriptionStatus()
+            setSubscription(latestStatus)
 
-        <div className="mb-6 flex flex-wrap items-center gap-4 rounded-2xl border border-blue-500/30 bg-slate-800/80 p-5 text-white shadow-2xl">
-          <label className="font-semibold text-blue-100">Sort by:</label>
-          <select
-            className="rounded-lg border border-blue-300/40 bg-slate-900 p-2 text-white transition focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-400"
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value)}
-          >
-            <option value="price">Price (Low to High)</option>
-            <option value="mileage">Mileage (High to Low)</option>
-            <option value="rating">Rating (High to Low)</option>
-            <option value="engine">Engine Size (High to Low)</option>
-          </select>
+            const limit = latestStatus?.limits?.smartCompareLimit || EXPLORER_FALLBACK.limits.smartCompareLimit
+            if (selected.length > limit) {
+                toast.info(`Explorer supports comparing up to ${limit} cars. Upgrade to continue.`)
+                navigate('/user/pricing')
+                return
+            }
 
-          <div className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-200">
-            {selected.length}/3 selected
-          </div>
+            const selectedCars = [...selected]
+            const response = await axiosInstance.post('/compare/compare', {
+                carIds: selectedCars.map((car) => car._id),
+                save: false,
+            })
 
-          <p className="text-sm text-slate-400">Pick 2 or 3 cars for advanced compare.</p>
+            const comparisonData = response.data?.data || {}
+            const comparisonCars = (comparisonData.cars?.length ? comparisonData.cars : selectedCars)
+                .map((car) => ({ ...car, _id: getCarId(car) }))
+            const localAnalysis = buildSmartCompareAnalysis(comparisonCars)
 
-          {selected.length >= 2 && (
-            <button
-              className="ml-auto rounded-lg bg-gradient-to-r from-blue-500 to-indigo-500 px-6 py-2 font-semibold text-white shadow-lg transition-all duration-300 hover:from-blue-600 hover:to-indigo-700 hover:shadow-2xl"
-              onClick={showComparison}
-            >
-              Compare {selected.length} Cars
-            </button>
-          )}
-        </div>
+            setComparison({
+                mode: 'smart',
+                plan: latestStatus?.plan || 'explorer',
+                planLabel: latestStatus?.planLabel || formatPlanName(latestStatus?.plan),
+                cars: comparisonCars,
+                analysis: {
+                    ...localAnalysis,
+                    ...(comparisonData.aiAnalysisDetails || {}),
+                    prosCons: localAnalysis.prosCons,
+                },
+                aiText: comparisonData.aiAnalysis || comparisonData.aiAnalysisDetails?.summary || '',
+            })
 
-        {loading && (
-          <div className="py-10 text-center">
-            <p className="text-gray-500">Loading cars...</p>
-          </div>
-        )}
+            const remaining = response.data?.remainingComparisons
+            setCompareNotice(typeof remaining === 'number' ? `${remaining} smart comparison${remaining === 1 ? '' : 's'} remaining on Explorer.` : '')
+        } catch (error) {
+            toast.error(error.response?.data?.message || 'Unable to compare the selected cars.')
+        } finally {
+            setCompareLoading(false)
+        }
+    }
 
-        {!loading && (
-          <div className="mb-6 grid grid-cols-1 gap-6 md:grid-cols-3">
-            {sortedCars.map((car) => (
-              <CarCard
-                key={car._id}
-                car={car}
-                selectable={true}
-                selected={!!selected.find((item) => item._id === car._id)}
-                onSelect={handleSelect}
-              />
-            ))}
-          </div>
-        )}
+    return (
+        <div className="min-h-screen bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-900 px-4 py-10 text-slate-100">
+            <style>{`
+                @import url('https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=DM+Sans:wght@400;500;600&display=swap');
+                .compare-title { font-family: 'Syne', sans-serif; letter-spacing: -0.03em; }
+                .compare-copy { font-family: 'DM Sans', sans-serif; }
+            `}</style>
 
-        {showTable && sortedSelected.length >= 2 && (
-          <div ref={comparisonRef} className="space-y-6">
-            <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.05fr_0.95fr]">
-              <div className="rounded-2xl border border-white/10 bg-slate-900/88 p-6 shadow-2xl backdrop-blur-xl">
-                <div className="mb-5 flex items-center justify-between gap-3">
-                  <div>
-                    <p className="mb-2 text-xs uppercase tracking-[0.24em] text-indigo-200">Radar Overlay</p>
-                    <h4 className="text-xl font-bold text-white md:text-2xl">How the selected cars stack up</h4>
-                  </div>
-                  <button
-                    className="rounded-lg border border-white/15 bg-white/5 px-4 py-2 text-sm text-slate-200 transition hover:bg-white/10"
-                    onClick={resetComparison}
-                  >
-                    Reset
-                  </button>
+            <div className="mx-auto max-w-6xl">
+                <div className="mb-6">
+                    <p className="compare-copy text-xs font-semibold uppercase tracking-[0.24em] text-indigo-200">Compare</p>
+                    <h1 className="compare-title mt-2 text-4xl font-black text-white">Explorer users can compare for free</h1>
+                    <p className="compare-copy mt-3 max-w-3xl text-slate-300">
+                        Every user gets the Explorer plan by default. You can compare up to {smartCompareLimit} cars for free, and we will send you to pricing only when you go beyond that limit.
+                    </p>
                 </div>
 
-                <div className="overflow-hidden rounded-2xl border border-white/8 bg-slate-950/70 p-4">
-                  <svg viewBox="0 0 300 300" className="mx-auto h-[340px] w-full max-w-[360px]">
-                    {gridPolygons.map((polygon, index) => (
-                      <polygon key={index} points={polygon} fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="1" />
-                    ))}
-                    {axisPoints.map((point) => (
-                      <g key={point.label}>
-                        <line x1="150" y1="150" x2={point.x} y2={point.y} stroke="rgba(255,255,255,0.08)" strokeWidth="1" />
-                        <text x={point.labelX} y={point.labelY} fill="rgba(226,232,240,0.9)" fontSize="11" textAnchor="middle">
-                          {point.label}
-                        </text>
-                      </g>
-                    ))}
-                    {radarData.map((item) => (
-                      <g key={item.car._id}>
-                        <polygon points={item.polygon} fill={item.colors.fill} stroke={item.colors.stroke} strokeWidth="2.5" />
-                      </g>
-                    ))}
-                  </svg>
-                </div>
-              </div>
+                <div className="mb-6 flex flex-wrap items-center gap-3 rounded-3xl border border-white/10 bg-white/[0.04] p-5">
+                    <label className="compare-copy text-sm font-semibold text-slate-200">Sort by</label>
+                    <select
+                        value={sortBy}
+                        onChange={(event) => setSortBy(event.target.value)}
+                        className="compare-copy rounded-xl border border-white/10 bg-slate-950/60 px-4 py-2 text-sm text-white"
+                    >
+                        <option value="price">Price</option>
+                        <option value="mileage">Mileage</option>
+                        <option value="reviewRating">Review Rating</option>
+                        <option value="safetyRating">Safety Rating</option>
+                        <option value="engine">Engine</option>
+                    </select>
 
-              <div className="rounded-2xl border border-white/10 bg-slate-900/88 p-6 shadow-2xl backdrop-blur-xl">
-                <p className="mb-2 text-xs uppercase tracking-[0.24em] text-indigo-200">Legend</p>
-                <h4 className="mb-5 text-xl font-bold text-white md:text-2xl">Selected cars</h4>
-                <div className="space-y-4">
-                  {sortedSelected.map((car, index) => (
-                    <div key={car._id} className="rounded-2xl border border-white/8 bg-white/[0.03] p-4">
-                      <div className="mb-3 flex items-center gap-3">
-                        <span className="h-3.5 w-3.5 rounded-full" style={{ background: radarColors[index]?.stroke || '#60a5fa' }} />
-                        <div>
-                          <p className="font-semibold text-white">{car.name}</p>
-                          <p className="text-sm text-slate-400">{car.brand} · {car.type}</p>
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-2 gap-3 text-sm" style={{ fontFamily: "'DM Sans', sans-serif" }}>
-                        <div className="rounded-xl bg-white/[0.04] p-3 text-slate-300">Price: <span className="font-semibold text-white">Rs {Number(car.price || 0).toLocaleString('en-IN')}</span></div>
-                        <div className="rounded-xl bg-white/[0.04] p-3 text-slate-300">Mileage: <span className="font-semibold text-white">{car.mileage || 0} kmpl</span></div>
-                        <div className="rounded-xl bg-white/[0.04] p-3 text-slate-300">Rating: <span className="font-semibold text-white">{car.rating || 0}/5</span></div>
-                        <div className="rounded-xl bg-white/[0.04] p-3 text-slate-300">Reviews: <span className="font-semibold text-white">{car.reviewCount || 0}</span></div>
-                      </div>
+                    <div className="compare-copy rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-sm text-slate-200">
+                        {selected.length} selected
                     </div>
-                  ))}
+                    <div className="compare-copy rounded-full border border-sky-300/20 bg-sky-400/10 px-4 py-2 text-sm text-sky-100">
+                        {formatPlanName(subscription?.plan)} | compare up to {smartCompareLimit} cars
+                    </div>
+
+                    <button
+                        type="button"
+                        onClick={runComparison}
+                        disabled={compareLoading || selected.length < 2}
+                        className="compare-copy ml-auto rounded-2xl bg-[linear-gradient(135deg,#378ADD,#4f46e5)] px-5 py-3 text-sm font-semibold text-white disabled:opacity-50"
+                    >
+                        {compareLoading ? 'Comparing...' : `Compare ${selected.length || ''} Cars`}
+                    </button>
                 </div>
-              </div>
+
+                {selected.length > smartCompareLimit && (
+                    <div className="compare-copy mb-6 rounded-3xl border border-amber-300/20 bg-amber-400/10 p-5 text-amber-100">
+                        You selected {selected.length} cars. Explorer supports up to {smartCompareLimit}. Click compare to upgrade on the pricing page.
+                    </div>
+                )}
+
+                {loading ? (
+                    <div className="compare-copy rounded-3xl border border-white/10 bg-white/[0.04] p-6 text-slate-300">Loading cars...</div>
+                ) : (
+                    <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
+                        {sortedCars.map((car) => (
+                            <CarCard
+                                key={car._id}
+                                car={car}
+                                selectable={true}
+                                selected={selected.some((item) => item._id === car._id)}
+                                onSelect={handleSelect}
+                            />
+                        ))}
+                    </div>
+                )}
+
+                {comparison && resultCars.length >= 2 && (
+                    <div ref={comparisonRef} className="mt-10 space-y-6">
+                        {compareNotice && (
+                            <div className="compare-copy rounded-3xl border border-sky-300/20 bg-sky-400/10 p-5 text-sky-100">
+                                {compareNotice}
+                            </div>
+                        )}
+
+                        <div className="rounded-[28px] border border-white/10 bg-white/[0.04] p-6">
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                                <div>
+                                    <p className="compare-copy text-xs uppercase tracking-[0.24em] text-slate-400">
+                                        {comparison.mode === 'smart' ? 'Smart Compare - AI Analysis' : 'Basic Compare'}
+                                    </p>
+                                    <h2 className="compare-title mt-2 text-3xl text-white">Winner analysis and recommendation</h2>
+                                </div>
+                                <span className="compare-copy rounded-full border border-white/10 bg-slate-950/40 px-4 py-2 text-sm text-slate-200">
+                                    {comparison.planLabel || 'Explorer'}
+                                </span>
+                            </div>
+
+                            <div className="mt-6 overflow-x-auto">
+                                <table className="compare-copy min-w-full border-collapse text-left text-sm">
+                                    <thead>
+                                        <tr className="border-b border-white/10 text-slate-300">
+                                            <th className="px-4 py-3 font-semibold">Feature</th>
+                                            {resultCars.map((car) => (
+                                                <th key={getCarId(car)} className="px-4 py-3 font-semibold text-white">{car.name}</th>
+                                            ))}
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {comparisonRows.map(([label, key]) => {
+                                            const winnerIds = getWinnerIds(resultCars, key)
+                                            return (
+                                                <tr key={key} className="border-b border-white/6">
+                                                    <td className="px-4 py-4 font-medium text-slate-300">{label}</td>
+                                                    {resultCars.map((car) => {
+                                                        const isWinner = winnerIds.includes(getCarId(car))
+                                                        return (
+                                                            <td key={`${getCarId(car)}-${key}`} className="px-4 py-4">
+                                                                <div className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 ${isWinner ? 'border-emerald-300/25 bg-emerald-400/10 text-emerald-100' : 'border-white/10 bg-slate-950/40 text-white'}`}>
+                                                                    <span>{formatCompareValue(car, key)}</span>
+                                                                    {comparison.mode === 'smart' && isWinner && (
+                                                                        <span className="rounded-full bg-emerald-300/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-emerald-100">
+                                                                            Winner
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                            </td>
+                                                        )
+                                                    })}
+                                                </tr>
+                                            )
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <div className="rounded-[28px] border border-white/10 bg-white/[0.04] p-6">
+                            <p className="compare-copy text-xs uppercase tracking-[0.24em] text-indigo-200">Graphical Comparison</p>
+                            <h3 className="compare-title mt-2 text-2xl text-white">See the selected cars side by side</h3>
+
+                            <div className="mt-6 grid gap-4 md:grid-cols-2">
+                                {[
+                                    { key: 'price', label: 'Price', higherIsBetter: false },
+                                    { key: 'mileage', label: 'Mileage', higherIsBetter: true },
+                                    { key: 'safetyRating', label: 'Safety Rating', higherIsBetter: true },
+                                    { key: 'reviewRating', label: 'Review Rating', higherIsBetter: true },
+                                ].map((metric) => {
+                                    const values = resultCars.map((car) => numericValue(car, metric.key))
+                                    const maxValue = Math.max(...values, 1)
+                                    const minValue = Math.min(...values)
+
+                                    return (
+                                        <div key={metric.key} className="rounded-3xl border border-white/10 bg-slate-950/40 p-5">
+                                            <div className="mb-4 flex items-center justify-between gap-3">
+                                                <p className="compare-copy text-sm font-semibold text-white">{metric.label}</p>
+                                                <span className="compare-copy text-xs text-slate-400">
+                                                    {metric.higherIsBetter ? 'Higher is better' : 'Lower is better'}
+                                                </span>
+                                            </div>
+
+                                            <div className="space-y-4">
+                                                {resultCars.map((car) => {
+                                                    const value = numericValue(car, metric.key)
+                                                    const width = metric.higherIsBetter
+                                                        ? `${(value / maxValue) * 100}%`
+                                                        : `${(minValue / Math.max(value, 1)) * 100}%`
+
+                                                    return (
+                                                        <div key={`${getCarId(car)}-${metric.key}`}>
+                                                            <div className="mb-1 flex items-center justify-between gap-3">
+                                                                <span className="compare-copy text-sm text-slate-200">{car.name}</span>
+                                                                <span className="compare-copy text-sm text-white">{formatCompareValue(car, metric.key)}</span>
+                                                            </div>
+                                                            <div className="h-3 overflow-hidden rounded-full bg-white/10">
+                                                                <div
+                                                                    className="h-full rounded-full"
+                                                                    style={{ width, background: 'linear-gradient(135deg, #38bdf8, #6366f1)' }}
+                                                                />
+                                                            </div>
+                                                        </div>
+                                                    )
+                                                })}
+                                            </div>
+                                        </div>
+                                    )
+                                })}
+                            </div>
+                        </div>
+
+                        {comparison.mode === 'smart' && comparison.analysis && (
+                            <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
+                                <div className="rounded-[28px] border border-white/10 bg-white/[0.04] p-6">
+                                    <p className="compare-copy text-xs uppercase tracking-[0.24em] text-indigo-200">AI Summary</p>
+                                    <h3 className="compare-title mt-2 text-2xl text-white">Overall recommendation</h3>
+                                    <p className="compare-copy mt-4 text-base leading-7 text-slate-300">
+                                        {comparison.aiText || comparison.analysis.summary}
+                                    </p>
+
+                                    <p className="compare-copy mt-5 rounded-2xl border border-white/10 bg-slate-950/40 px-4 py-3 text-sm text-slate-200">
+                                        {comparison.analysis.verdict}
+                                    </p>
+                                </div>
+
+                                <div className="space-y-4">
+                                    {comparison.analysis.highlights?.map((item) => {
+                                        const car = resultCars.find((entry) => getCarId(entry) === item.carId)
+                                        return (
+                                            <div key={`${item.carId}-${item.label}`} className="rounded-[24px] border border-white/10 bg-white/[0.04] p-5">
+                                                <p className="compare-copy text-sm font-semibold text-white">
+                                                    {car?.name || 'Car'}: {item.label}
+                                                </p>
+                                                <p className="compare-copy mt-3 text-sm leading-6 text-slate-300">{item.text}</p>
+                                            </div>
+                                        )
+                                    })}
+                                </div>
+                            </div>
+                        )}
+
+                        {comparison.mode === 'smart' && comparison.analysis?.prosCons?.length > 0 && (
+                            <div className="grid gap-4 lg:grid-cols-2">
+                                {comparison.analysis.prosCons.map((item) => {
+                                    const car = resultCars.find((entry) => getCarId(entry) === item.carId)
+                                    return (
+                                        <details key={item.carId} className="rounded-[24px] border border-white/10 bg-white/[0.04] p-5">
+                                            <summary className="compare-copy cursor-pointer text-sm font-semibold text-white">
+                                                {car?.name || 'Car'} pros and cons
+                                            </summary>
+                                            <div className="compare-copy mt-4 grid gap-4 md:grid-cols-2 text-sm text-slate-300">
+                                                <div>
+                                                    <p className="font-semibold text-emerald-200">Pros</p>
+                                                    <ul className="mt-2 space-y-1">
+                                                        {item.pros.map((entry) => <li key={entry}>- {entry}</li>)}
+                                                    </ul>
+                                                </div>
+                                                <div>
+                                                    <p className="font-semibold text-rose-200">Cons</p>
+                                                    <ul className="mt-2 space-y-1">
+                                                        {item.cons.map((entry) => <li key={entry}>- {entry}</li>)}
+                                                    </ul>
+                                                </div>
+                                            </div>
+                                        </details>
+                                    )
+                                })}
+                            </div>
+                        )}
+                    </div>
+                )}
             </div>
-
-            <div className="overflow-x-auto rounded-2xl border border-white/10 bg-slate-900/88 p-6 shadow-2xl backdrop-blur-xl">
-              <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                <h4 className="text-xl font-bold text-white md:text-2xl">Comparison Result</h4>
-                <p className="text-sm text-slate-400">Best numeric values are highlighted in each row.</p>
-              </div>
-
-              <table className="w-full border-collapse text-center">
-                <thead>
-                  <tr className="border-b border-white/10 bg-slate-950/80 text-white">
-                    <th className="p-4 text-left text-sm font-semibold uppercase tracking-wider text-slate-300">Feature</th>
-                    {sortedSelected.map((car) => (
-                      <th key={car._id} className="p-4 text-base font-semibold text-white">{car.name}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {comparisonRows.map(([label, key], rowIndex) => {
-                    const winnerIds = getWinnerIds(key)
-
-                    return (
-                      <tr key={key} className={`border-b border-white/8 ${rowIndex % 2 === 0 ? 'bg-white/[0.02]' : 'bg-transparent'} hover:bg-white/[0.04]`}>
-                        <td className="p-4 text-left text-sm font-semibold text-slate-300">{label}</td>
-                        {sortedSelected.map((car) => {
-                          const isWinner = winnerIds.includes(car._id)
-                          const isPremiumMetric = key === 'price' || key === 'rating' || key === 'reviewCount'
-
-                          return (
-                            <td key={car._id} className="p-4">
-                              <div
-                                className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold ${
-                                  isWinner
-                                    ? 'border-emerald-400/35 bg-emerald-500/15 text-emerald-100'
-                                    : isPremiumMetric
-                                      ? 'border-indigo-400/25 bg-indigo-500/15 text-indigo-100'
-                                      : 'border-white/10 bg-white/[0.05] text-slate-100'
-                                }`}
-                              >
-                                <span>{formatCompareValue(car, key)}</span>
-                                {isWinner && <span className="rounded-full bg-emerald-400/20 px-2 py-0.5 text-[10px] uppercase tracking-[0.2em] text-emerald-100">Best</span>}
-                              </div>
-                            </td>
-                          )
-                        })}
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  )
+        </div>
+    )
 }
 
 export default CompareCars

@@ -111,7 +111,7 @@ const SearchCars = () => {
         applyFilters(data, { markSearched: true, budgetApplied: budgetActive && !!data.maxPrice })
         logSearchEvent({
             ...data,
-            queryText: [data.brand, data.type, data.fuel, data.transmission, data.maxPrice ? `under Rs ${data.maxPrice}` : '']
+            queryText: [data.brand, data.type, data.fuel, data.transmission, data.maxPrice ? `under ₹ ${data.maxPrice}` : '']
                 .filter(Boolean)
                 .join(', '),
         })
@@ -142,7 +142,7 @@ const SearchCars = () => {
         applyFilters(nextFilters, { markSearched: true, budgetApplied: true })
         logSearchEvent({
             ...nextFilters,
-            queryText: `Smart budget under Rs ${maxAffordablePrice.toLocaleString('en-IN')}`,
+            queryText: `Smart budget under ₹ ${maxAffordablePrice.toLocaleString('en-IN')}`,
         })
         toast.success('Smart budget filter applied.')
     }
@@ -160,7 +160,7 @@ const SearchCars = () => {
             }
         } catch (err) {
             console.error('Wishlist update failed', err)
-            toast.error('Unable to update wishlist right now.')
+            toast.error(err.response?.data?.message || 'Unable to update wishlist right now.')
         }
     }
 
@@ -198,7 +198,7 @@ const SearchCars = () => {
                         <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 px-4 py-3">
                             <p className="text-[11px] uppercase tracking-[0.24em] text-emerald-200">Affordable Price</p>
                             <p className="mt-1 text-2xl font-bold text-white">
-                                {affordablePrice ? `Rs ${Math.round(affordablePrice).toLocaleString('en-IN')}` : 'Enter budget'}
+                                {affordablePrice ? `₹ ${Math.round(affordablePrice).toLocaleString('en-IN')}` : 'Enter budget'}
                             </p>
                         </div>
                     </div>
@@ -269,7 +269,7 @@ const SearchCars = () => {
                                 <div key={item.label} className="rounded-2xl border border-white/8 bg-white/[0.03] p-4">
                                     <p className="text-[11px] uppercase tracking-[0.24em] text-slate-400">{item.label}</p>
                                     <p className="mt-2 text-lg font-bold text-white">
-                                        {item.value ? `Rs ${Math.round(item.value).toLocaleString('en-IN')}` : '--'}
+                                        {item.value ? `₹ ${Math.round(item.value).toLocaleString('en-IN')}` : '--'}
                                     </p>
                                 </div>
                             ))}
@@ -343,7 +343,7 @@ const SearchCars = () => {
                                 </div>
                             </div>
                             <div>
-                                <label className="mb-1.5 block text-xs font-medium text-blue-100">Max Price (Rs)</label>
+                            <label className="mb-1.5 block text-xs font-medium text-blue-100">Max Price (₹)</label>
                                 <input type="number" className={filterInputClassName} placeholder="e.g. 1000000" {...register('maxPrice')} />
                             </div>
                         </div>
@@ -376,7 +376,7 @@ const SearchCars = () => {
                         </p>
                         {budgetActive && affordablePrice > 0 && (
                             <p className="rounded-full border border-emerald-400/20 bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-200">
-                                Budget cap active up to Rs {Math.round(affordablePrice).toLocaleString('en-IN')}
+                                Budget cap active up to ₹ {Math.round(affordablePrice).toLocaleString('en-IN')}
                             </p>
                         )}
                     </div>

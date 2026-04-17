@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { toast } from 'react-toastify'
 import { getCarImage } from '../../utils/carImageUtils'
 import { addCarToWishlist, removeCarFromWishlist } from '../../utils/wishlistApi'
 
@@ -34,6 +35,7 @@ const CarCard = ({ car, selectable, selected, onSelect, wishlisted, onToggleWish
             }
         } catch (err) {
             console.error('Failed to update wishlist', err)
+            toast.error(err.response?.data?.message || 'Unable to update wishlist right now.')
         }
     }
 
@@ -85,7 +87,7 @@ const CarCard = ({ car, selectable, selected, onSelect, wishlisted, onToggleWish
                         className="absolute right-12 top-3 flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold text-white"
                         style={{ background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(8px)' }}
                     >
-                        {car.rating || 0}/5
+                        {'\u{1F6E1}'} {car.safetyRating ?? car.rating ?? 0}/5
                     </div>
 
                     {!selectable ? (
@@ -158,7 +160,7 @@ const CarCard = ({ car, selectable, selected, onSelect, wishlisted, onToggleWish
                         <div>
                             <p className="mb-0.5 text-xs" style={{ color: 'rgba(255,255,255,0.3)', fontFamily: "'DM Sans', sans-serif" }}>Price</p>
                             <p className="text-lg font-bold" style={{ color: '#818cf8', fontFamily: "'Syne', sans-serif", letterSpacing: '-0.02em' }}>
-                                Rs {car.price?.toLocaleString('en-IN')}
+                                ₹ {car.price?.toLocaleString('en-IN')}
                             </p>
                             <p className="mt-1 text-[11px]" style={{ color: 'rgba(255,255,255,0.35)', fontFamily: "'DM Sans', sans-serif" }}>
                                 {car.reviewCount ? `${car.reviewCount} review${car.reviewCount > 1 ? 's' : ''}` : 'No reviews yet'}

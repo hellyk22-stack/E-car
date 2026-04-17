@@ -4,16 +4,31 @@ const Schema = mongoose.Schema
 const userSchema = new Schema({
     name: {
         type: String,
-        required: true
+        required: true,
+        trim: true
     },
     email: {
         type: String,
         required: true,
-        unique: true
+        unique: true,
+        trim: true,
+        lowercase: true
     },
     password: {
         type: String,
         required: true
+    },
+    phone: {
+        type: String,
+        trim: true,
+        default: "",
+    },
+    address: {
+        street: { type: String, trim: true, default: "" },
+        area: { type: String, trim: true, default: "" },
+        city: { type: String, trim: true, default: "" },
+        state: { type: String, trim: true, default: "" },
+        pincode: { type: String, trim: true, default: "" },
     },
     role: {
         type: String,

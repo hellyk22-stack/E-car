@@ -1,12 +1,15 @@
 const router = require("express").Router()
 const userController = require("../controllers/UserController")
-const { verifyAdmin } = require("../middleware/AuthMiddleware")
+const { verifyAdmin, verifyToken } = require("../middleware/AuthMiddleware")
 
-// Public — no token needed
 router.post("/register", userController.registerUser)
 router.post("/login", userController.loginUser)
+router.get("/profile", verifyToken, userController.getMyProfile)
+router.put("/profile", verifyToken, userController.updateMyProfile)
 
-// Admin only
+router.get("/users/export/csv", verifyAdmin, userController.exportUsersCsv)
+router.get("/users/:id/activity", verifyAdmin, userController.getUserActivity)
 router.get("/users", verifyAdmin, userController.getAllUsers)
+router.patch("/users/:id", verifyAdmin, userController.updateUser)
 
 module.exports = router

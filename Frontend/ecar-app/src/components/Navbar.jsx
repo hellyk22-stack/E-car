@@ -69,6 +69,14 @@ export const UserNavbar = () => {
                                 Compare Cars
                             </Link>
                         </li>
+                        <li>
+                            <Link
+                                to="/user/bookings"
+                                className={`text-sm font-medium transition ${isActive("/user/bookings") ? "text-blue-400" : "text-gray-300 hover:text-white"}`}
+                            >
+                                My Bookings
+                            </Link>
+                        </li>
 
                         {/* Profile Dropdown */}
                         <li className="relative" ref={dropdownRef}>
@@ -117,6 +125,7 @@ export const UserNavbar = () => {
                         <li><Link to="/" className="text-gray-300 text-sm" onClick={() => setMenuOpen(false)}>Home</Link></li>
                         <li><Link to="/user/search" className="text-gray-300 text-sm" onClick={() => setMenuOpen(false)}>Search Cars</Link></li>
                         <li><Link to="/user/compare" className="text-gray-300 text-sm" onClick={() => setMenuOpen(false)}>Compare Cars</Link></li>
+                        <li><Link to="/user/bookings" className="text-gray-300 text-sm" onClick={() => setMenuOpen(false)}>My Bookings</Link></li>
                         <li><button className="text-red-400 text-sm font-medium" onClick={handleLogout}>🚪 Logout</button></li>
                     </ul>
                 )}

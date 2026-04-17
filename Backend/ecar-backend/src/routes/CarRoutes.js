@@ -2,6 +2,7 @@ const router = require("express").Router()
 const carController = require("../controllers/CarController")
 const { verifyToken, verifyAdmin } = require("../middleware/AuthMiddleware")
 const upload = require("../middleware/UploadMiddleware")
+const uploadCsv = require("../middleware/UploadCsvMiddleware")
 
 router.get("/cars", carController.getAllCars)
 router.get("/search", carController.searchCars)
@@ -10,6 +11,8 @@ router.get("/car/:id/price-history", carController.getPriceHistory)
 
 router.get("/my-cars", verifyToken, carController.getCarsByUser)
 
+router.post("/import/preview", verifyAdmin, uploadCsv.single("file"), carController.previewCsvImport)
+router.post("/import/confirm", verifyAdmin, carController.confirmCsvImport)
 router.post("/car", verifyAdmin, upload.single("image"), carController.addCar)
 router.put("/car/:id", verifyAdmin, upload.single("image"), carController.updateCar)
 router.delete("/car/:id", verifyAdmin, carController.deleteCar)

@@ -9,6 +9,8 @@ import SearchCars from "../pages/user/SearchCars"
 import CompareCars from "../pages/user/CompareCars"
 import ManageCars from "../pages/admin/ManageCars"
 import AnalyticsDashboard from "../pages/admin/AnalyticsDashboard"
+import AdminUsers from "../pages/admin/AdminUsers"
+import SystemCenter from "../pages/admin/SystemCenter"
 import CarDetail from "../pages/user/CarDetail"
 import Profile from "../pages/user/Profile"
 import Wishlist from "../pages/user/Wishlist"
@@ -51,6 +53,8 @@ const router = createBrowserRouter([
         children: [
             { index: true, element: <Navigate to="analytics" replace /> },
             { path: "analytics", element: <AnalyticsDashboard /> },
+            { path: "users", element: <AdminUsers /> },
+            { path: "system", element: <SystemCenter /> },
             { path: "managecars", element: <ManageCars /> }
         ]
     },

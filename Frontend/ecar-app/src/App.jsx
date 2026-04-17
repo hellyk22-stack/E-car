@@ -1,5 +1,5 @@
 
-import AppRouter from './router/AppRouter'
+import AppRouter from './router/EnhancedAppRouter'
 import { ToastContainer, Zoom } from 'react-toastify'
 import 'react-toastify/dist/ReactToastify.css'
 

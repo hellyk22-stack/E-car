@@ -66,6 +66,8 @@ async function seed() {
 
         await CarModel.create({
             ...car,
+            reviewRating: car.rating,
+            safetyRating: car.rating,
             userId: admin._id,
             status: 'active',
         })

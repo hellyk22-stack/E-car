@@ -3,6 +3,11 @@
 export const getToken = () => localStorage.getItem("token")
 export const getRole = () => localStorage.getItem("role")
 export const getName = () => localStorage.getItem("name") || "User"
+export const getDashboardRouteForRole = (role) => {
+  if (role === "admin") return "/admin/analytics"
+  if (role === "showroom") return "/showroom/dashboard"
+  return "/user/search"
+}
 
 export const clearAuth = () => {
   localStorage.removeItem("token")
@@ -28,6 +33,12 @@ export const getUserId = () => {
   const token = getToken()
   const payload = decodeJwtPayload(token)
   return payload?.id || null
+}
+
+export const getShowroomId = () => {
+  const token = getToken()
+  const payload = decodeJwtPayload(token)
+  return payload?.showroomId || null
 }
 
 export const isTokenValid = (token) => {

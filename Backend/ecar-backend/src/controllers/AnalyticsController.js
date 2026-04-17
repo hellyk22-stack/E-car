@@ -4,6 +4,7 @@ const WishlistModel = require("../models/WishlistModel")
 const CarViewEventModel = require("../models/CarViewEventModel")
 const SearchEventModel = require("../models/SearchEventModel")
 const AIChatSessionModel = require("../models/AIChatSessionModel")
+const { sendCsv } = require("../utils/CsvUtil")
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 
@@ -71,6 +72,71 @@ const getTopViewedCars = async (period = "week", limit = 10) => {
             },
         },
         { $sort: { views: -1, uniqueUsers: -1, name: 1 } },
+        { $limit: limit },
+    ])
+}
+
+const getSearchInsightsData = async (period = "week") => {
+    const since = getRangeStart(period)
+    const [brands, types, priceRanges, recentSearches] = await Promise.all([
+        SearchEventModel.aggregate([
+            { $match: { searchedAt: { $gte: since }, brand: { $ne: "" } } },
+            { $group: { _id: { $toLower: "$brand" }, count: { $sum: 1 } } },
+            { $sort: { count: -1, _id: 1 } },
+            { $limit: 8 },
+        ]),
+        SearchEventModel.aggregate([
+            { $match: { searchedAt: { $gte: since }, type: { $ne: "" } } },
+            { $group: { _id: "$type", count: { $sum: 1 } } },
+            { $sort: { count: -1, _id: 1 } },
+            { $limit: 8 },
+        ]),
+        SearchEventModel.aggregate([
+            { $match: { searchedAt: { $gte: since }, priceRangeLabel: { $ne: "" } } },
+            { $group: { _id: "$priceRangeLabel", count: { $sum: 1 } } },
+            { $sort: { count: -1, _id: 1 } },
+            { $limit: 8 },
+        ]),
+        SearchEventModel.find({ searchedAt: { $gte: since } })
+            .sort({ searchedAt: -1 })
+            .limit(10)
+            .select("brand type fuel transmission maxPrice priceRangeLabel queryText searchedAt")
+            .lean(),
+    ])
+
+    return {
+        brands: brands.map((item) => ({ label: item._id, value: item.count })),
+        types: types.map((item) => ({ label: item._id, value: item.count })),
+        priceRanges: priceRanges.map((item) => ({ label: item._id, value: item.count })),
+        recentSearches,
+    }
+}
+
+const getWishlistLeaderboardData = async (limit = 10) => {
+    return WishlistModel.aggregate([
+        { $group: { _id: "$carId", saves: { $sum: 1 } } },
+        {
+            $lookup: {
+                from: "cars",
+                localField: "_id",
+                foreignField: "_id",
+                as: "car",
+            },
+        },
+        { $unwind: "$car" },
+        {
+            $project: {
+                _id: "$car._id",
+                name: "$car.name",
+                brand: "$car.brand",
+                type: "$car.type",
+                fuel: "$car.fuel",
+                price: "$car.price",
+                image: "$car.image",
+                saves: 1,
+            },
+        },
+        { $sort: { saves: -1, name: 1 } },
         { $limit: limit },
     ])
 }
@@ -163,32 +229,7 @@ const getDashboardAnalytics = async (req, res) => {
             ]),
             getTopViewedCars("week", 5),
             getTopViewedCars("month", 5),
-            WishlistModel.aggregate([
-                { $group: { _id: "$carId", saves: { $sum: 1 } } },
-                {
-                    $lookup: {
-                        from: "cars",
-                        localField: "_id",
-                        foreignField: "_id",
-                        as: "car",
-                    },
-                },
-                { $unwind: "$car" },
-                {
-                    $project: {
-                        _id: "$car._id",
-                        name: "$car.name",
-                        brand: "$car.brand",
-                        type: "$car.type",
-                        fuel: "$car.fuel",
-                        price: "$car.price",
-                        image: "$car.image",
-                        saves: 1,
-                    },
-                },
-                { $sort: { saves: -1, name: 1 } },
-                { $limit: 5 },
-            ]),
+            getWishlistLeaderboardData(5),
         ])
 
         const signupsByDay = Array.from({ length: 7 }, (_, index) => {
@@ -234,81 +275,78 @@ const getMostViewedCarsReport = async (req, res) => {
     }
 }
 
+const exportMostViewedCsv = async (req, res) => {
+    try {
+        const period = req.query.period === "month" ? "month" : "week"
+        const data = await getTopViewedCars(period, 100)
+        return sendCsv(res, `most-viewed-${period}.csv`, [
+            { key: "name", label: "Car Name" },
+            { key: "brand", label: "Brand" },
+            { key: "type", label: "Type" },
+            { key: "fuel", label: "Fuel" },
+            { key: "price", label: "Price" },
+            { key: "views", label: "Views" },
+            { key: "uniqueUsers", label: "Unique Users" },
+        ], data)
+    } catch (err) {
+        return res.status(500).json({ message: "Error while exporting most viewed csv", err })
+    }
+}
+
 const getSearchKeywordInsights = async (req, res) => {
     try {
-        const since = getRangeStart(req.query.period === "month" ? "month" : "week")
-        const [brands, types, priceRanges, recentSearches] = await Promise.all([
-            SearchEventModel.aggregate([
-                { $match: { searchedAt: { $gte: since }, brand: { $ne: "" } } },
-                { $group: { _id: { $toLower: "$brand" }, count: { $sum: 1 } } },
-                { $sort: { count: -1, _id: 1 } },
-                { $limit: 8 },
-            ]),
-            SearchEventModel.aggregate([
-                { $match: { searchedAt: { $gte: since }, type: { $ne: "" } } },
-                { $group: { _id: "$type", count: { $sum: 1 } } },
-                { $sort: { count: -1, _id: 1 } },
-                { $limit: 8 },
-            ]),
-            SearchEventModel.aggregate([
-                { $match: { searchedAt: { $gte: since }, priceRangeLabel: { $ne: "" } } },
-                { $group: { _id: "$priceRangeLabel", count: { $sum: 1 } } },
-                { $sort: { count: -1, _id: 1 } },
-                { $limit: 8 },
-            ]),
-            SearchEventModel.find({ searchedAt: { $gte: since } })
-                .sort({ searchedAt: -1 })
-                .limit(10)
-                .select("brand type fuel transmission maxPrice priceRangeLabel queryText searchedAt")
-                .lean(),
-        ])
-
-        return res.json({
-            message: "Search keyword insights",
-            data: {
-                brands: brands.map((item) => ({ label: item._id, value: item.count })),
-                types: types.map((item) => ({ label: item._id, value: item.count })),
-                priceRanges: priceRanges.map((item) => ({ label: item._id, value: item.count })),
-                recentSearches,
-            },
-        })
+        const period = req.query.period === "month" ? "month" : "week"
+        const data = await getSearchInsightsData(period)
+        return res.json({ message: "Search keyword insights", data, meta: { period } })
     } catch (err) {
         return res.status(500).json({ message: "Error while fetching search insights", err })
     }
 }
 
+const exportSearchInsightsCsv = async (req, res) => {
+    try {
+        const period = req.query.period === "month" ? "month" : "week"
+        const data = await getSearchInsightsData(period)
+        return sendCsv(res, `search-insights-${period}.csv`, [
+            { key: "searchedAt", label: "Searched At" },
+            { key: "queryText", label: "Query" },
+            { key: "brand", label: "Brand" },
+            { key: "type", label: "Type" },
+            { key: "fuel", label: "Fuel" },
+            { key: "transmission", label: "Transmission" },
+            { key: "priceRangeLabel", label: "Price Range" },
+            { key: "maxPrice", label: "Max Price" },
+        ], data.recentSearches.map((item) => ({
+            ...item,
+            searchedAt: item.searchedAt ? new Date(item.searchedAt).toISOString() : "",
+        })))
+    } catch (err) {
+        return res.status(500).json({ message: "Error while exporting search insights csv", err })
+    }
+}
+
 const getWishlistLeaderboard = async (req, res) => {
     try {
-        const data = await WishlistModel.aggregate([
-            { $group: { _id: "$carId", saves: { $sum: 1 } } },
-            {
-                $lookup: {
-                    from: "cars",
-                    localField: "_id",
-                    foreignField: "_id",
-                    as: "car",
-                },
-            },
-            { $unwind: "$car" },
-            {
-                $project: {
-                    _id: "$car._id",
-                    name: "$car.name",
-                    brand: "$car.brand",
-                    type: "$car.type",
-                    fuel: "$car.fuel",
-                    price: "$car.price",
-                    image: "$car.image",
-                    saves: 1,
-                },
-            },
-            { $sort: { saves: -1, name: 1 } },
-            { $limit: 10 },
-        ])
-
+        const data = await getWishlistLeaderboardData(10)
         return res.json({ message: "Wishlist leaderboard", data })
     } catch (err) {
         return res.status(500).json({ message: "Error while fetching wishlist leaderboard", err })
+    }
+}
+
+const exportWishlistLeaderboardCsv = async (req, res) => {
+    try {
+        const data = await getWishlistLeaderboardData(100)
+        return sendCsv(res, "wishlist-leaderboard.csv", [
+            { key: "name", label: "Car Name" },
+            { key: "brand", label: "Brand" },
+            { key: "type", label: "Type" },
+            { key: "fuel", label: "Fuel" },
+            { key: "price", label: "Price" },
+            { key: "saves", label: "Wishlist Saves" },
+        ], data)
+    } catch (err) {
+        return res.status(500).json({ message: "Error while exporting wishlist leaderboard csv", err })
     }
 }
 
@@ -317,6 +355,9 @@ module.exports = {
     logSearch,
     getDashboardAnalytics,
     getMostViewedCarsReport,
+    exportMostViewedCsv,
     getSearchKeywordInsights,
+    exportSearchInsightsCsv,
     getWishlistLeaderboard,
+    exportWishlistLeaderboardCsv,
 }

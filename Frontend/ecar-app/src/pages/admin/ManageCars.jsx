@@ -22,7 +22,13 @@ const ManageCars = () => {
     const [imageFile, setImageFile] = useState(null)       // File object for upload
     const [imagePreview, setImagePreview] = useState(null) // Local preview URL
     const [submitting, setSubmitting] = useState(false)
+    const [csvFile, setCsvFile] = useState(null)
+    const [importPreview, setImportPreview] = useState([])
+    const [importMeta, setImportMeta] = useState(null)
+    const [previewLoading, setPreviewLoading] = useState(false)
+    const [confirmingImport, setConfirmingImport] = useState(false)
     const fileInputRef = useRef(null)
+    const csvInputRef = useRef(null)
 
     useEffect(() => { fetchCars() }, [])
 
@@ -37,7 +43,7 @@ const ManageCars = () => {
 
     const handleChange = (e) => setForm({ ...form, [e.target.name]: e.target.value })
 
-    // Handle image file selection â€” show preview immediately
+    // Handle image file selection — show preview immediately
     const handleImageChange = (e) => {
         const file = e.target.files[0]
         if (!file) return
@@ -57,6 +63,13 @@ const ManageCars = () => {
         setImageFile(null)
         setImagePreview(null)
         if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+
+    const clearCsvImport = () => {
+        setCsvFile(null)
+        setImportPreview([])
+        setImportMeta(null)
+        if (csvInputRef.current) csvInputRef.current.value = ''
     }
 
     // Submit as multipart/form-data so backend Cloudinary upload works
@@ -80,16 +93,13 @@ const ManageCars = () => {
                 await axiosInstance.put(`/car/car/${editCar._id}`, formData, {
                     headers: { 'Content-Type': 'multipart/form-data' }
                 })
-                toast.success('Car updated âœ“')
+                toast.success('Car updated ✔')
             } else {
                 await axiosInstance.post('/car/car', formData, {
                     headers: { 'Content-Type': 'multipart/form-data' }
                 })
-                toast.success('Car added âœ“')
+                toast.success('Car added ✔')
             }
-
-            setShowForm(false)
-            setEditCar(null)
             setForm(EMPTY_FORM)
             clearImage()
             fetchCars()
@@ -122,7 +132,7 @@ const ManageCars = () => {
     const handleDelete = async (id) => {
         try {
             await axiosInstance.delete(`/car/car/${id}`)
-            toast.success('Car deleted âœ“')
+            toast.success('Car deleted ✔')
             setDeleteConfirm(null)
             fetchCars()
         } catch { toast.error('Error deleting car') }
@@ -133,6 +143,64 @@ const ManageCars = () => {
         setEditCar(null)
         setForm(EMPTY_FORM)
         clearImage()
+    }
+
+    const handleCsvSelect = (event) => {
+        const file = event.target.files?.[0]
+        if (!file) return
+        if (!file.name.toLowerCase().endsWith('.csv')) {
+            toast.error('Please select a CSV file')
+            return
+        }
+        setCsvFile(file)
+        setImportPreview([])
+        setImportMeta(null)
+    }
+
+    const handlePreviewImport = async () => {
+        if (!csvFile) {
+            toast.info('Choose a CSV file first')
+            return
+        }
+
+        setPreviewLoading(true)
+        try {
+            const formData = new FormData()
+            formData.append('file', csvFile)
+            const res = await axiosInstance.post('/car/import/preview', formData, {
+                headers: { 'Content-Type': 'multipart/form-data' }
+            })
+            setImportPreview(res.data.data || [])
+            setImportMeta(res.data.meta || null)
+            toast.success('CSV preview generated')
+        } catch (err) {
+            console.error('CSV preview failed', err)
+            toast.error(err.response?.data?.message || 'Unable to preview CSV import')
+        } finally {
+            setPreviewLoading(false)
+        }
+    }
+
+    const handleConfirmImport = async () => {
+        if (!importPreview.length) {
+            toast.info('Preview a CSV before confirming import')
+            return
+        }
+
+        setConfirmingImport(true)
+        try {
+            const res = await axiosInstance.post('/car/import/confirm', {
+                rows: importPreview.map((item) => item.normalized)
+            })
+            toast.success(`Imported ${res.data.data?.insertedCount || 0} cars successfully`)
+            clearCsvImport()
+            fetchCars()
+        } catch (err) {
+            console.error('CSV import failed', err)
+            toast.error(err.response?.data?.message || 'Unable to import CSV rows')
+        } finally {
+            setConfirmingImport(false)
+        }
     }
 
     const fuelColor = { Petrol: '#f59e0b', Diesel: '#3b82f6', Electric: '#10b981' }
@@ -184,8 +252,145 @@ const ManageCars = () => {
                     }}
                     onClick={() => showForm ? resetAndClose() : setShowForm(true)}
                 >
-                    {showForm ? 'âœ• Cancel' : '+ Add Car'}
+                    {showForm ? '✕ Cancel' : '+ Add Car'}
                 </button>
+            </div>
+
+            <div className="rounded-2xl p-6 mb-6" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(52,211,153,0.2)' }}>
+                <div className="flex flex-wrap items-start justify-between gap-4 mb-5">
+                    <div>
+                        <p className="text-xs font-semibold uppercase tracking-widest mb-1" style={{ color: '#34d399' }}>Bulk Import</p>
+                        <h3 className="text-white font-bold text-lg">Upload Cars From CSV</h3>
+                        <p className="text-sm mt-2" style={{ color: 'rgba(255,255,255,0.4)', fontFamily: "'DM Sans', sans-serif" }}>
+                            Preview parsed rows, review validation errors inline, and import only the valid cars.
+                        </p>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => {
+                            const template = [
+                                'name,brand,type,price,mileage,engine,seating,fuel,transmission,rating,image,status,priceChangeDate',
+                                'Maruti Swift,Maruti,Hatchback,699000,23.76,1197,5,Petrol,Manual,4.3,,active,2026-04-12',
+                            ].join('\n')
+                            const blob = new Blob([template], { type: 'text/csv;charset=utf-8;' })
+                            const url = window.URL.createObjectURL(blob)
+                            const link = document.createElement('a')
+                            link.href = url
+                            link.setAttribute('download', 'car-import-template.csv')
+                            document.body.appendChild(link)
+                            link.click()
+                            link.remove()
+                            window.URL.revokeObjectURL(url)
+                        }}
+                        className="px-4 py-2 rounded-xl text-xs font-semibold text-white"
+                        style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)', fontFamily: "'DM Sans', sans-serif" }}
+                    >
+                        Download Template
+                    </button>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-3 mb-4">
+                    <input
+                        ref={csvInputRef}
+                        type="file"
+                        accept=".csv,text/csv"
+                        className="hidden"
+                        onChange={handleCsvSelect}
+                    />
+                    <button
+                        type="button"
+                        onClick={() => csvInputRef.current?.click()}
+                        className="px-5 py-3 rounded-xl font-semibold text-sm text-white"
+                        style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)', fontFamily: "'DM Sans', sans-serif" }}
+                    >
+                        {csvFile ? csvFile.name : 'Choose CSV'}
+                    </button>
+                    <button
+                        type="button"
+                        onClick={handlePreviewImport}
+                        disabled={previewLoading || !csvFile}
+                        className="px-5 py-3 rounded-xl font-semibold text-sm text-white disabled:opacity-50"
+                        style={{ background: 'linear-gradient(135deg, #10b981, #059669)', fontFamily: "'DM Sans', sans-serif" }}
+                    >
+                        {previewLoading ? 'Previewing...' : 'Preview Import'}
+                    </button>
+                    {(csvFile || importPreview.length > 0) && (
+                        <button
+                            type="button"
+                            onClick={clearCsvImport}
+                            className="px-5 py-3 rounded-xl font-semibold text-sm"
+                            style={{ background: 'rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.7)', border: '1px solid rgba(255,255,255,0.08)', fontFamily: "'DM Sans', sans-serif" }}
+                        >
+                            Clear
+                        </button>
+                    )}
+                </div>
+
+                {importMeta && (
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+                        {[
+                            { label: 'Total Rows', value: importMeta.totalRows },
+                            { label: 'Valid Rows', value: importMeta.validRows },
+                            { label: 'Invalid Rows', value: importMeta.invalidRows },
+                        ].map((item) => (
+                            <div key={item.label} className="rounded-xl p-4" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                                <p className="text-xs uppercase tracking-[0.18em]" style={{ color: 'rgba(255,255,255,0.4)', fontFamily: "'DM Sans', sans-serif" }}>{item.label}</p>
+                                <p className="mt-2 text-xl font-bold text-white">{item.value}</p>
+                            </div>
+                        ))}
+                    </div>
+                )}
+
+                {importPreview.length > 0 && (
+                    <>
+                        <div className="overflow-x-auto rounded-2xl mb-4" style={{ border: '1px solid rgba(255,255,255,0.08)' }}>
+                            <table className="w-full text-sm">
+                                <thead>
+                                    <tr style={{ background: 'rgba(99,102,241,0.1)' }}>
+                                        {['Row', 'Name', 'Brand', 'Type', 'Price', 'Fuel', 'Transmission', 'Status'].map((head) => (
+                                            <th key={head} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-[0.18em]" style={{ color: 'rgba(255,255,255,0.5)', fontFamily: "'DM Sans', sans-serif" }}>
+                                                {head}
+                                            </th>
+                                        ))}
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {importPreview.map((row) => (
+                                        <tr key={row.rowNumber} style={{ background: row.isValid ? 'transparent' : 'rgba(239,68,68,0.06)', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+                                            <td className="px-4 py-3 text-white">{row.rowNumber}</td>
+                                            <td className="px-4 py-3 text-white">{row.normalized.name || '--'}</td>
+                                            <td className="px-4 py-3" style={{ color: 'rgba(255,255,255,0.75)' }}>{row.normalized.brand || '--'}</td>
+                                            <td className="px-4 py-3" style={{ color: 'rgba(255,255,255,0.75)' }}>{row.normalized.type || '--'}</td>
+                                            <td className="px-4 py-3" style={{ color: 'rgba(255,255,255,0.75)' }}>{row.normalized.price ?? '--'}</td>
+                                            <td className="px-4 py-3" style={{ color: 'rgba(255,255,255,0.75)' }}>{row.normalized.fuel || '--'}</td>
+                                            <td className="px-4 py-3" style={{ color: 'rgba(255,255,255,0.75)' }}>{row.normalized.transmission || '--'}</td>
+                                            <td className="px-4 py-3">
+                                                <span className="px-3 py-1 rounded-full text-xs font-semibold" style={{ background: row.isValid ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)', color: row.isValid ? '#6ee7b7' : '#fca5a5' }}>
+                                                    {row.isValid ? 'Valid' : 'Invalid'}
+                                                </span>
+                                                {row.errors.length > 0 && (
+                                                    <p className="mt-2 text-xs leading-5" style={{ color: '#fca5a5', fontFamily: "'DM Sans', sans-serif" }}>
+                                                        {row.errors.join(' • ')}
+                                                    </p>
+                                                )}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <button
+                            type="button"
+                            onClick={handleConfirmImport}
+                            disabled={confirmingImport || !importPreview.some((row) => row.isValid)}
+                            className="px-6 py-3 rounded-xl font-bold text-sm text-white disabled:opacity-50"
+                            style={{ background: 'linear-gradient(135deg, #6366f1, #8b5cf6)' }}
+                        >
+                            {confirmingImport ? 'Importing...' : 'Confirm Import Valid Rows'}
+                        </button>
+                    </>
+                )}
             </div>
 
             {/* Form */}
@@ -193,7 +398,7 @@ const ManageCars = () => {
                 <div className="form-slide p-6 rounded-2xl mb-6"
                     style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(99,102,241,0.2)' }}>
                     <h3 className="text-white font-bold mb-6 flex items-center gap-2 text-lg">
-                        {editCar ? `âœï¸ Edit â€” ${editCar.name}` : 'âž• Add New Car'}
+                        {editCar ? `✏️ Edit — ${editCar.name}` : '+ Add New Car'}
                     </h3>
 
                     <form onSubmit={handleSubmit}>
@@ -212,11 +417,11 @@ const ManageCars = () => {
                                     <button type="button" onClick={clearImage}
                                         className="absolute -top-2 -right-2 w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white"
                                         style={{ background: '#ef4444' }}>
-                                        âœ•
+                                        ✕
                                     </button>
                                     {imageFile && (
                                         <p className="text-xs mt-1.5" style={{ color: '#34d399', fontFamily: "'DM Sans', sans-serif" }}>
-                                            âœ“ {imageFile.name} ({(imageFile.size / 1024).toFixed(0)}KB)
+                                            ✔ {imageFile.name} ({(imageFile.size / 1024).toFixed(0)}KB)
                                         </p>
                                     )}
                                     {!imageFile && editCar?.image && (
@@ -242,10 +447,10 @@ const ManageCars = () => {
                                         }
                                     }}
                                 >
-                                    <p className="text-3xl mb-2">ðŸ–¼ï¸</p>
+                                    <p className="text-3xl mb-2">📁</p>
                                     <p className="text-sm font-semibold text-white mb-1">Click or drag to upload</p>
                                     <p className="text-xs" style={{ color: 'rgba(255,255,255,0.35)', fontFamily: "'DM Sans', sans-serif" }}>
-                                        JPG, PNG, WEBP Â· Max 5MB Â· Uploads to Cloudinary
+                                        JPG, PNG, WEBP · Max 5MB · Uploads to Cloudinary
                                     </p>
                                 </div>
                             )}
@@ -264,11 +469,11 @@ const ManageCars = () => {
                             {[
                                 { name: 'name', label: 'Car Name', placeholder: 'e.g. Swift ZXI+' },
                                 { name: 'brand', label: 'Brand', placeholder: 'e.g. Maruti' },
-                                { name: 'price', label: 'Price (â‚¹)', type: 'number', placeholder: 'e.g. 850000' },
+                                { name: 'price', label: 'Price (₹)', type: 'number', placeholder: 'e.g. 850000' },
                                 { name: 'mileage', label: 'Mileage (kmpl)', type: 'number', placeholder: 'e.g. 23' },
                                 { name: 'engine', label: 'Engine (cc)', type: 'number', placeholder: 'e.g. 1197' },
                                 { name: 'seating', label: 'Seating', type: 'number', placeholder: 'e.g. 5' },
-                                { name: 'rating', label: 'Rating (0â€“5)', type: 'number', step: '0.1', max: '5', placeholder: 'e.g. 4.2' },
+                                { name: 'rating', label: 'Rating (0–5)', type: 'number', step: '0.1', max: '5', placeholder: 'e.g. 4.2' },
                             ].map(field => (
                                 <div key={field.name}>
                                     <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5"
@@ -345,7 +550,7 @@ const ManageCars = () => {
                                         </svg>
                                         {editCar ? 'Updating...' : 'Adding...'}
                                     </>
-                                ) : (editCar ? 'âœ“ Update Car' : 'âœ“ Add Car')}
+                                ) : (editCar ? '✔ Update Car' : '✔ Add Car')}
                             </button>
                             <button type="button" onClick={resetAndClose}
                                 className="px-6 py-3 rounded-xl font-semibold text-sm"
@@ -366,7 +571,7 @@ const ManageCars = () => {
             ) : cars.length === 0 ? (
                 <div className="text-center py-20 rounded-2xl"
                     style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.07)' }}>
-                    <p className="text-5xl mb-4">ðŸš—</p>
+                    <p className="text-5xl mb-4">🚗</p>
                     <p className="text-white font-bold mb-2">No cars yet</p>
                     <p className="text-sm" style={{ color: 'rgba(255,255,255,0.4)', fontFamily: "'DM Sans', sans-serif" }}>Add your first car above</p>
                 </div>
@@ -404,7 +609,7 @@ const ManageCars = () => {
                                         </span>
                                     </td>
                                     <td className="px-4 py-3 font-bold" style={{ color: '#818cf8', fontFamily: "'DM Sans', sans-serif" }}>
-                                        â‚¹{car.price?.toLocaleString('en-IN')}
+                                        ₹{car.price?.toLocaleString('en-IN')}
                                     </td>
                                     <td className="px-4 py-3">
                                         <span className="px-2.5 py-1 rounded-full text-xs font-semibold"
@@ -413,7 +618,7 @@ const ManageCars = () => {
                                         </span>
                                     </td>
                                     <td className="px-4 py-3" style={{ color: '#fbbf24', fontFamily: "'DM Sans', sans-serif" }}>
-                                        {car.rating ? `â­ ${car.rating}` : 'â€”'}
+                                        {car.rating ? `⭐ ${car.rating}` : '—'}
                                     </td>
                                     <td className="px-4 py-3">
                                         <div className="flex gap-2">
@@ -442,7 +647,7 @@ const ManageCars = () => {
                     style={{ background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(8px)' }}>
                     <div className="del-modal w-full max-w-sm p-6 rounded-2xl"
                         style={{ background: '#161625', border: '1px solid rgba(239,68,68,0.3)' }}>
-                        <p className="text-3xl mb-4 text-center">ðŸ—‘ï¸</p>
+                        <p className="text-3xl mb-4 text-center">⚠️</p>
                         <h3 className="text-white font-bold text-lg text-center mb-2">Delete Car</h3>
                         <p className="text-center text-sm mb-6"
                             style={{ color: 'rgba(255,255,255,0.5)', fontFamily: "'DM Sans', sans-serif" }}>

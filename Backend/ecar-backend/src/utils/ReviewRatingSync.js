@@ -19,13 +19,13 @@ const syncCarRating = async (carId) => {
     if (summary) {
         const rating = Number(summary.averageRating.toFixed(1))
         const reviewCount = summary.reviewCount
-        await CarModel.findByIdAndUpdate(carId, { rating, reviewCount })
-        return { rating, reviewCount }
+        await CarModel.findByIdAndUpdate(carId, { rating, reviewRating: rating, reviewCount })
+        return { rating, reviewRating: rating, reviewCount }
     }
 
-    await CarModel.findByIdAndUpdate(carId, { reviewCount: 0 })
-    const car = await CarModel.findById(carId).select('rating reviewCount')
-    return { rating: car?.rating || 0, reviewCount: 0 }
+    await CarModel.findByIdAndUpdate(carId, { rating: 0, reviewRating: 0, reviewCount: 0 })
+    const car = await CarModel.findById(carId).select('rating reviewRating reviewCount')
+    return { rating: car?.rating || 0, reviewRating: car?.reviewRating || 0, reviewCount: 0 }
 }
 
 module.exports = { syncCarRating }

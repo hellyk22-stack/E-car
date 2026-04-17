@@ -1,6 +1,7 @@
 const express = require('express')
 const { verifyToken } = require('../middleware/AuthMiddleware')
 const AIChatSession = require('../models/AIChatSessionModel')
+const { resolveReviewRating, resolveSafetyRating } = require('../utils/CarRatingUtil')
 
 const router = express.Router()
 
@@ -30,7 +31,9 @@ const buildInventorySummary = (carInventory) => (
             seating: car.seating,
             fuel: car.fuel,
             transmission: car.transmission,
-            rating: car.rating,
+            rating: resolveReviewRating(car),
+            reviewRating: resolveReviewRating(car),
+            safetyRating: resolveSafetyRating(car),
         }))
         : []
 )
