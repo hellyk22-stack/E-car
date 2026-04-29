@@ -11,14 +11,14 @@ const bookingOptions = [
     {
         value: 'home',
         title: 'Home Test Drive',
-        icon: '⌂',
+        icon: 'H',
         eyebrow: 'White-glove',
         description: 'A partner showroom brings the drive to your address and confirms the visit after review.',
     },
     {
         value: 'showroom',
         title: 'Showroom Visit',
-        icon: '▦',
+        icon: 'S',
         eyebrow: 'In-person',
         description: 'Pick the best nearby showroom for this brand and lock a clean one-hour slot.',
     },
@@ -33,6 +33,9 @@ const normalizeTakenSlots = (items = []) => items
         return item?.slot || item?.time || item?.scheduledTime || ''
     })
     .filter(Boolean)
+
+const isValidIndianPincode = (value = '') => /^\d{6}$/.test(String(value).trim())
+const isValidPhoneNumber = (value = '') => /^\d{10}$/.test(String(value).replace(/\D/g, ''))
 
 const initialForm = {
     bookingType: 'showroom',
@@ -115,7 +118,7 @@ const TestDriveBookingModal = ({
     const [activeBooking, setActiveBooking] = useState(null)
     const [activeBookingsCount, setActiveBookingsCount] = useState(0)
     const [checkingActiveBooking, setCheckingActiveBooking] = useState(false)
-    const [subLimit, setSubLimit] = useState(1) // Default to Explorer
+    const [subLimit, setSubLimit] = useState(1)
     const deferredLocationHint = useDeferredValue(form.locationHint)
 
     useEffect(() => {
@@ -145,7 +148,7 @@ const TestDriveBookingModal = ({
             try {
                 const [status, bookingsRes] = await Promise.all([
                     fetchSubscriptionStatus(),
-                    axiosInstance.get(`/user/bookings?status=${activeBookingStatusParam}&limit=50`)
+                    axiosInstance.get(`/user/bookings?status=${activeBookingStatusParam}&limit=50`),
                 ])
 
                 if (ignore) return
@@ -154,7 +157,7 @@ const TestDriveBookingModal = ({
                     activeBookingStatuses.includes(String(booking?.status || '').toLowerCase())
                 ))
                 const limit = isUnlimitedLimit(status?.limits?.activeBookingsLimit) ? Infinity : (status?.limits?.activeBookingsLimit || 1)
-                
+
                 setActiveBookingsCount(bookings.length)
                 setSubLimit(limit)
                 setActiveBooking(bookings[0] || null)
@@ -229,12 +232,22 @@ const TestDriveBookingModal = ({
                 const items = res.data.data || []
                 setShowrooms(items)
 
+                const nextShowroomId = items[0]?._id || ''
+
                 if (form.bookingType === 'showroom') {
                     if (!items.some((item) => item._id === form.showroomId)) {
-                        setForm((prev) => ({ ...prev, showroomId: items[0]?._id || '' }))
+                        setForm((prev) => (
+                            prev.showroomId === nextShowroomId
+                                ? prev
+                                : { ...prev, showroomId: nextShowroomId }
+                        ))
                     }
                 } else {
-                    setForm((prev) => ({ ...prev, showroomId: items[0]?._id || '' }))
+                    setForm((prev) => (
+                        prev.showroomId === nextShowroomId
+                            ? prev
+                            : { ...prev, showroomId: nextShowroomId }
+                    ))
                 }
             } catch {
                 if (!ignore) {
@@ -252,7 +265,7 @@ const TestDriveBookingModal = ({
         return () => {
             ignore = true
         }
-    }, [activeBookingsCount, subLimit, car, deferredLocationHint, form.bookingType, form.pincode, form.showroomId, open])
+    }, [activeBookingsCount, subLimit, car, deferredLocationHint, form.bookingType, form.pincode, open])
 
     useEffect(() => {
         if (!open || !car?._id || !form.scheduledDate || activeBookingsCount >= subLimit) {
@@ -266,12 +279,11 @@ const TestDriveBookingModal = ({
         const loadSlots = async () => {
             setLoadingSlots(true)
             try {
-                // Fetch showroom general availability and specific car booked slots in parallel
                 const [availabilityRes, takenRes] = await Promise.all([
-                    form.showroomId 
+                    form.showroomId
                         ? axiosInstance.get(`/user/showrooms/${form.showroomId}/availability?date=${form.scheduledDate}`)
                         : Promise.resolve({ data: { data: [] } }),
-                    axiosInstance.get(`/user/bookings/taken-slots?carId=${car._id}&date=${form.scheduledDate}`)
+                    axiosInstance.get(`/user/bookings/taken-slots?carId=${car._id}&date=${form.scheduledDate}`),
                 ])
 
                 if (!ignore) {
@@ -341,6 +353,10 @@ const TestDriveBookingModal = ({
                 toast.info('Add the full address and pincode for the home visit.')
                 return false
             }
+            if (!isValidIndianPincode(form.pincode)) {
+                toast.info('Enter a valid 6-digit pincode for the home visit.')
+                return false
+            }
             if (!form.showroomId) {
                 toast.error('No approved showroom currently covers that location for this car.')
                 return false
@@ -354,6 +370,16 @@ const TestDriveBookingModal = ({
 
         if (!form.fullName.trim() || !form.phone.trim() || !form.licenseNumber.trim() || !form.licenseExpiry) {
             toast.info('Complete the contact and driving license details.')
+            return false
+        }
+
+        if (!isValidPhoneNumber(form.phone)) {
+            toast.info('Enter a valid 10-digit phone number.')
+            return false
+        }
+
+        if (new Date(form.licenseExpiry) <= new Date()) {
+            toast.info('Enter a driving license expiry date in the future.')
             return false
         }
 
@@ -427,7 +453,7 @@ const TestDriveBookingModal = ({
                             <div className="border-b border-white/10 p-6 lg:border-b-0 lg:border-r">
                                 <div className="flex items-start justify-between gap-4">
                                     <div>
-                                        <p className="text-xs font-semibold uppercase tracking-[0.24em]" style={{ color: '#93c5fd' }}>Book Test Drive</p>
+                                        <p className="text-xs font-semibold uppercase tracking-[0.24em]" style={{ color: '#93c5fd' }}>Book test drive</p>
                                         <h2 className="mt-2 text-3xl font-black text-white">{car?.name}</h2>
                                         <div className="mt-2 flex items-center gap-2">
                                             <span className="rounded-full bg-blue-500/10 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-blue-300" style={{ border: '1px solid rgba(59,130,246,0.2)' }}>
@@ -456,10 +482,10 @@ const TestDriveBookingModal = ({
                                                 key={option.value}
                                                 type="button"
                                                 onClick={() => updateField('bookingType', option.value)}
-                                            className="rounded-[28px] p-5 text-left transition-transform duration-200 hover:-translate-y-1"
-                                            style={{
-                                                background: active ? 'linear-gradient(135deg, rgba(59,130,246,0.22), rgba(236,72,153,0.16))' : 'rgba(255,255,255,0.05)',
-                                                border: `1px solid ${active ? 'rgba(125,211,252,0.38)' : 'rgba(255,255,255,0.08)'}`,
+                                                className="rounded-[28px] p-5 text-left transition-transform duration-200 hover:-translate-y-1"
+                                                style={{
+                                                    background: active ? 'linear-gradient(135deg, rgba(59,130,246,0.22), rgba(236,72,153,0.16))' : 'rgba(255,255,255,0.05)',
+                                                    border: `1px solid ${active ? 'rgba(125,211,252,0.38)' : 'rgba(255,255,255,0.08)'}`,
                                                 }}
                                             >
                                                 <div className="flex items-center justify-between">
@@ -502,7 +528,7 @@ const TestDriveBookingModal = ({
                                             <input
                                                 value={form.locationHint}
                                                 onChange={(event) => updateField('locationHint', event.target.value)}
-                                                placeholder="Mumbai or 400025"
+                                                placeholder="Enter city or pincode"
                                                 className="w-full rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-white outline-none"
                                             />
                                         </div>
@@ -530,13 +556,13 @@ const TestDriveBookingModal = ({
                                             <input
                                                 value={form.pincode}
                                                 onChange={(event) => updateField('pincode', event.target.value)}
-                                                placeholder="Service pincode"
+                                                placeholder="6-digit service pincode"
                                                 className="w-full rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-white outline-none"
                                             />
                                         </div>
                                     ) : (
                                         <div>
-                                            <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-white/45">Select Nearest Showroom</label>
+                                            <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-white/45">Select showroom</label>
                                             <select
                                                 value={form.showroomId}
                                                 onChange={(event) => updateField('showroomId', event.target.value)}
@@ -545,16 +571,21 @@ const TestDriveBookingModal = ({
                                                 <option value="">Choose an approved showroom</option>
                                                 {showrooms.map((showroom) => (
                                                     <option key={showroom._id} value={showroom._id}>
-                                                        {showroom.name} - {showroom.address?.city || 'City unavailable'}
+                                                        {showroom.name} - {showroom.address?.city || 'Location unavailable'}
                                                     </option>
                                                 ))}
                                             </select>
+                                            {!loadingShowrooms && showrooms.length === 0 && (
+                                                <p className="mt-2 text-xs text-amber-100/80" style={{ fontFamily: "'DM Sans', sans-serif" }}>
+                                                    No approved showroom matches this car and location yet. Update the location or try the home test drive option.
+                                                </p>
+                                            )}
                                         </div>
                                     )}
 
                                     <div>
                                         <label className="mb-3 block text-xs font-semibold uppercase tracking-[0.18em] text-white/45">
-                                            {form.bookingType === 'showroom' ? 'Slot Picker' : 'Preferred Time'}
+                                            {form.bookingType === 'showroom' ? 'Choose a time slot' : 'Preferred time'}
                                         </label>
                                         {loadingSlots ? (
                                             <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-6 text-sm text-white/55">
@@ -581,7 +612,7 @@ const TestDriveBookingModal = ({
                                                                 color: isTaken ? 'rgba(255,255,255,0.2)' : (active ? '#e0f2fe' : 'white'),
                                                                 border: `1px solid ${isTaken ? 'rgba(255,255,255,0.05)' : (active ? 'rgba(125,211,252,0.4)' : 'rgba(255,255,255,0.08)')}`,
                                                                 cursor: isTaken ? 'not-allowed' : 'pointer',
-                                                                textDecoration: isTaken ? 'line-through' : 'none'
+                                                                textDecoration: isTaken ? 'line-through' : 'none',
                                                             }}
                                                         >
                                                             {slot}
@@ -628,7 +659,7 @@ const TestDriveBookingModal = ({
                                                 className="rounded-2xl px-6 py-3 text-sm font-semibold text-white disabled:opacity-50"
                                                 style={{ background: 'linear-gradient(135deg, #38bdf8, #2563eb)' }}
                                             >
-                                                {checkingActiveBooking ? 'Checking booking limit...' : submitting ? 'Sending request...' : 'Reserve Test Drive'}
+                                                {checkingActiveBooking ? 'Checking booking limit...' : submitting ? 'Sending request...' : 'Reserve test drive'}
                                             </button>
                                         )}
                                         <button
@@ -637,7 +668,7 @@ const TestDriveBookingModal = ({
                                             className="rounded-2xl px-6 py-3 text-sm font-semibold text-white"
                                             style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)' }}
                                         >
-                                            Maybe later
+                                            Cancel
                                         </button>
                                     </div>
                                 </form>
@@ -656,7 +687,7 @@ const TestDriveBookingModal = ({
                                         </div>
                                         <div>
                                             <p className="text-white/45">Experience</p>
-                                            <p className="mt-1 text-white">{form.bookingType === 'home' ? 'Home Test Drive' : 'Showroom Visit'}</p>
+                                            <p className="mt-1 text-white">{form.bookingType === 'home' ? 'Home test drive' : 'Showroom visit'}</p>
                                         </div>
                                         <div>
                                             <p className="text-white/45">Matched showroom</p>
@@ -687,7 +718,7 @@ const TestDriveBookingModal = ({
                                     <div className="mt-4 space-y-3 text-sm leading-6 text-white/70" style={{ fontFamily: "'DM Sans', sans-serif" }}>
                                         <p>1. We send the request to the right showroom for manual approval.</p>
                                         <p>2. The booking appears in your notifications and test drive dashboard instantly.</p>
-                                        <p>3. Once approved, you’ll get an in-app update and a confirmation email.</p>
+                                        <p>3. Once approved, you'll get an in-app update and a confirmation email.</p>
                                     </div>
                                 </div>
                             </div>
@@ -700,4 +731,3 @@ const TestDriveBookingModal = ({
 }
 
 export default TestDriveBookingModal
-

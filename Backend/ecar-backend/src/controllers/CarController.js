@@ -4,6 +4,10 @@ const { logAdminActivity } = require("../utils/AdminActivityLogger")
 const { parseCsv, validateCarCsvRow } = require("../utils/CsvCarImport")
 const { serializeCar, normalizeRating } = require("../utils/CarRatingUtil")
 
+const logServerError = (context, error) => {
+    console.error(`[CarController] ${context}`, error)
+}
+
 const buildRatingPayload = (payload = {}) => {
     const normalized = { ...payload }
     const hasLegacyRating = payload.rating !== undefined && payload.rating !== ""
@@ -30,7 +34,8 @@ const getAllCars = async (req, res) => {
         const cars = await carSchema.find({})
         res.json({ message: "All cars", data: cars.map(serializeCar) })
     } catch (err) {
-        res.status(500).json({ message: "Error while fetching cars", err })
+        logServerError("getAllCars failed", err)
+        res.status(500).json({ message: "Error while fetching cars" })
     }
 }
 
@@ -43,7 +48,8 @@ const getCarById = async (req, res) => {
             res.status(404).json({ message: "Car not found" })
         }
     } catch (err) {
-        res.status(500).json({ message: "Error while fetching car", err })
+        logServerError("getCarById failed", err)
+        res.status(500).json({ message: "Error while fetching car" })
     }
 }
 
@@ -65,7 +71,8 @@ const getPriceHistory = async (req, res) => {
 
         res.json({ message: "Price history", data: history })
     } catch (err) {
-        res.status(500).json({ message: "Error while fetching price history", err })
+        logServerError("getPriceHistory failed", err)
+        res.status(500).json({ message: "Error while fetching price history" })
     }
 }
 
@@ -101,7 +108,8 @@ const addCar = async (req, res) => {
 
         res.status(201).json({ message: "Car added successfully", data: serializeCar(savedCar) })
     } catch (err) {
-        res.status(500).json({ message: "Error while adding car", err })
+        logServerError("addCar failed", err)
+        res.status(500).json({ message: "Error while adding car" })
     }
 }
 
@@ -158,7 +166,8 @@ const updateCar = async (req, res) => {
 
         res.json({ message: "Car updated successfully", data: serializeCar(updatedCar) })
     } catch (err) {
-        res.status(500).json({ message: "Error while updating car", err })
+        logServerError("updateCar failed", err)
+        res.status(500).json({ message: "Error while updating car" })
     }
 }
 
@@ -179,7 +188,8 @@ const deleteCar = async (req, res) => {
             res.status(404).json({ message: "Car not found" })
         }
     } catch (err) {
-        res.status(500).json({ message: "Error while deleting car", err })
+        logServerError("deleteCar failed", err)
+        res.status(500).json({ message: "Error while deleting car" })
     }
 }
 
@@ -195,7 +205,8 @@ const searchCars = async (req, res) => {
         const cars = await carSchema.find(filter)
         res.json({ message: "Search results", data: cars.map(serializeCar) })
     } catch (err) {
-        res.status(500).json({ message: "Error while searching cars", err })
+        logServerError("searchCars failed", err)
+        res.status(500).json({ message: "Error while searching cars" })
     }
 }
 
@@ -205,7 +216,8 @@ const getCarsByUser = async (req, res) => {
         const cars = await carSchema.find({ userId: userId, status: "active" })
         res.json({ message: "My cars", data: cars.map(serializeCar) })
     } catch (err) {
-        res.status(500).json({ message: "Error while fetching user's cars", err })
+        logServerError("getCarsByUser failed", err)
+        res.status(500).json({ message: "Error while fetching user's cars" })
     }
 }
 
@@ -253,7 +265,8 @@ const previewCsvImport = async (req, res) => {
             },
         })
     } catch (err) {
-        return res.status(500).json({ message: "Error while previewing CSV import", err })
+        logServerError("previewCsvImport failed", err)
+        return res.status(500).json({ message: "Error while previewing CSV import" })
     }
 }
 
@@ -310,7 +323,8 @@ const confirmCsvImport = async (req, res) => {
             },
         })
     } catch (err) {
-        return res.status(500).json({ message: "Error while confirming CSV import", err })
+        logServerError("confirmCsvImport failed", err)
+        return res.status(500).json({ message: "Error while confirming CSV import" })
     }
 }
 

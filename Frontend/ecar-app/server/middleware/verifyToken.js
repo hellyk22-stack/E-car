@@ -2,17 +2,16 @@ import jwt from 'jsonwebtoken'
 
 const verifyToken = (req, res, next) => {
     try {
-        const headerToken = req.headers.token
         const bearer = req.headers.authorization?.startsWith('Bearer ')
             ? req.headers.authorization.slice(7)
             : null
-        const token = bearer || headerToken
+        const token = bearer
 
         if (!token) {
             return res.status(401).json({ success: false, message: 'Authentication token missing' })
         }
 
-        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret')
+        const decoded = jwt.verify(token, process.env.JWT_SECRET)
         req.user = {
             ...decoded,
             id: decoded.id || decoded.userId || decoded.showroomId,

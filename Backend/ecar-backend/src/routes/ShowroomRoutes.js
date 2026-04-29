@@ -27,6 +27,10 @@ const { serializeCar } = require("../utils/CarRatingUtil")
 
 const JWT_SECRET = process.env.JWT_SECRET || "ecar_secret"
 
+const logServerError = (context, error) => {
+    console.error(`[ShowroomRoutes] ${context}`, error)
+}
+
 const splitList = (value) => {
     if (Array.isArray(value)) {
         return value.map((item) => String(item).trim()).filter(Boolean)
@@ -163,8 +167,8 @@ router.post("/register", upload.single("logo"), async (req, res) => {
             },
         })
     } catch (error) {
-        console.error("Showroom registration error:", error)
-        return res.status(500).json({ message: "Error while registering showroom", error: error.message })
+        logServerError("register showroom failed", error)
+        return res.status(500).json({ message: "Error while registering showroom" })
     }
 })
 
@@ -219,8 +223,8 @@ router.post("/login", async (req, res) => {
             },
         })
     } catch (error) {
-        console.error("Showroom login error:", error)
-        return res.status(500).json({ message: "Error while logging in showroom", error: error.message })
+        logServerError("showroom login failed", error)
+        return res.status(500).json({ message: "Error while logging in showroom" })
     }
 })
 
@@ -235,7 +239,8 @@ router.get("/profile", async (req, res) => {
 
         return res.json({ message: "Showroom profile fetched", data: showroom })
     } catch (err) {
-        return res.status(500).json({ message: "Error while fetching showroom profile", err })
+        logServerError("get showroom profile failed", err)
+        return res.status(500).json({ message: "Error while fetching showroom profile" })
     }
 })
 
@@ -304,7 +309,8 @@ router.put("/profile", upload.single("logo"), async (req, res) => {
         await showroom.save()
         return res.json({ message: "Showroom profile updated", data: showroom.toObject({ getters: false, virtuals: false }) })
     } catch (err) {
-        return res.status(500).json({ message: "Error while updating showroom profile", err: err.message || err })
+        logServerError("update showroom profile failed", err)
+        return res.status(500).json({ message: "Error while updating showroom profile" })
     }
 })
 
@@ -321,7 +327,8 @@ router.get("/cars", async (req, res) => {
             meta: { allowedBrands: showroom.brands || [] },
         })
     } catch (err) {
-        return res.status(500).json({ message: "Error while fetching showroom cars", err })
+        logServerError("get showroom cars failed", err)
+        return res.status(500).json({ message: "Error while fetching showroom cars" })
     }
 })
 
@@ -414,7 +421,8 @@ router.post("/cars", upload.single("image"), async (req, res) => {
             },
         })
     } catch (err) {
-        return res.status(500).json({ message: "Error while adding showroom car", err: err.message || err })
+        logServerError("add showroom car failed", err)
+        return res.status(500).json({ message: "Error while adding showroom car" })
     }
 })
 
@@ -431,7 +439,8 @@ router.delete("/cars/:carId", async (req, res) => {
 
         return res.json({ message: "Car removed from showroom inventory", data: showroom.cars })
     } catch (err) {
-        return res.status(500).json({ message: "Error while removing showroom car", err })
+        logServerError("remove showroom car failed", err)
+        return res.status(500).json({ message: "Error while removing showroom car" })
     }
 })
 
@@ -478,7 +487,8 @@ router.get("/bookings", async (req, res) => {
             },
         })
     } catch (err) {
-        return res.status(500).json({ message: "Error while fetching showroom bookings", err })
+        logServerError("get showroom bookings failed", err)
+        return res.status(500).json({ message: "Error while fetching showroom bookings" })
     }
 })
 
@@ -538,7 +548,8 @@ router.put("/bookings/bulk-confirm", async (req, res) => {
             },
         })
     } catch (err) {
-        return res.status(500).json({ message: "Error while bulk confirming bookings", err })
+        logServerError("bulk confirm bookings failed", err)
+        return res.status(500).json({ message: "Error while bulk confirming bookings" })
     }
 })
 
@@ -591,7 +602,8 @@ router.put("/bookings/:bookingId/confirm", async (req, res) => {
 
         return res.json({ message: "Booking confirmed", data: booking })
     } catch (err) {
-        return res.status(500).json({ message: "Error while confirming booking", err })
+        logServerError("confirm booking failed", err)
+        return res.status(500).json({ message: "Error while confirming booking" })
     }
 })
 
@@ -642,7 +654,8 @@ router.put("/bookings/:bookingId/reject", async (req, res) => {
 
         return res.json({ message: "Booking rejected", data: booking })
     } catch (err) {
-        return res.status(500).json({ message: "Error while rejecting booking", err })
+        logServerError("reject booking failed", err)
+        return res.status(500).json({ message: "Error while rejecting booking" })
     }
 })
 
@@ -687,7 +700,8 @@ router.put("/bookings/:bookingId/complete", async (req, res) => {
 
         return res.json({ message: "Booking completed", data: booking })
     } catch (err) {
-        return res.status(500).json({ message: "Error while completing booking", err })
+        logServerError("complete booking failed", err)
+        return res.status(500).json({ message: "Error while completing booking" })
     }
 })
 
@@ -720,7 +734,8 @@ router.get("/availability", async (req, res) => {
             },
         })
     } catch (err) {
-        return res.status(500).json({ message: "Error while fetching showroom availability", err })
+        logServerError("get showroom availability failed", err)
+        return res.status(500).json({ message: "Error while fetching showroom availability" })
     }
 })
 
@@ -776,7 +791,8 @@ router.post("/availability", async (req, res) => {
 
         return res.status(201).json({ message: "Availability saved", data: availability })
     } catch (err) {
-        return res.status(500).json({ message: "Error while saving availability", err })
+        logServerError("save availability failed", err)
+        return res.status(500).json({ message: "Error while saving availability" })
     }
 })
 

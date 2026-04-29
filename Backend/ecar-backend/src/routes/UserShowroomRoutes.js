@@ -19,6 +19,10 @@ const {
 } = require("../utils/BookingNotificationUtil")
 const { getActiveSubscription, isUnlimited } = require("../utils/SubscriptionUtil")
 
+const logServerError = (context, error) => {
+    console.error(`[UserShowroomRoutes] ${context}`, error)
+}
+
 const canUploadToCloudinary = () => (
     process.env.CLOUDINARY_CLOUD_NAME &&
     process.env.CLOUDINARY_API_KEY &&
@@ -35,6 +39,9 @@ const normalizeBookingType = (value) => {
     if (value === "showroom") return "at_showroom"
     return value
 }
+
+const isValidPincode = (value = "") => /^\d{6}$/.test(String(value).trim())
+const isValidPhoneNumber = (value = "") => /^\d{10}$/.test(String(value).replace(/\D/g, ""))
 
 const showroomIsActive = (showroom) => showroom?.status === "approved"
 
@@ -147,7 +154,8 @@ const listShowrooms = async (req, res, nearbyOnly = false) => {
             },
         })
     } catch (err) {
-        return res.status(500).json({ message: "Error while fetching showrooms", err })
+        logServerError("listShowrooms failed", err)
+        return res.status(500).json({ message: "Error while fetching showrooms" })
     }
 }
 
@@ -163,7 +171,8 @@ router.get("/showrooms/:id", async (req, res) => {
 
         return res.json({ message: "Showroom fetched", data: serializeShowroom(showroom) })
     } catch (err) {
-        return res.status(500).json({ message: "Error while fetching showroom", err })
+        logServerError("get showroom by id failed", err)
+        return res.status(500).json({ message: "Error while fetching showroom" })
     }
 })
 
@@ -189,7 +198,8 @@ router.get("/showrooms/:id/availability", async (req, res) => {
             },
         })
     } catch (err) {
-        return res.status(500).json({ message: "Error while fetching showroom availability", err })
+        logServerError("get showroom availability failed", err)
+        return res.status(500).json({ message: "Error while fetching showroom availability" })
     }
 })
 
@@ -205,7 +215,8 @@ router.post("/bookings/temp/upload-license", verifyToken, upload.single("license
         const image = await uploadToCloudinary(req.file.path)
         return res.status(201).json({ message: "License image uploaded", data: { image } })
     } catch (err) {
-        return res.status(500).json({ message: "Error while uploading license image", err })
+        logServerError("upload license image failed", err)
+        return res.status(500).json({ message: "Error while uploading license image" })
     }
 })
 
@@ -310,8 +321,20 @@ const createBooking = async (req, res) => {
         if (!resolvedUserDetails?.fullName || !resolvedUserDetails?.phone) {
             return res.status(400).json({ message: "Full name and phone are required" })
         }
+        if (!isValidPhoneNumber(resolvedUserDetails.phone)) {
+            return res.status(400).json({ message: "Enter a valid 10-digit phone number" })
+        }
         if (!resolvedUserDetails?.drivingLicense?.number || !resolvedUserDetails?.drivingLicense?.expiryDate) {
             return res.status(400).json({ message: "Driving license details are required" })
+        }
+        if (Number.isNaN(new Date(resolvedUserDetails.drivingLicense.expiryDate).getTime()) || new Date(resolvedUserDetails.drivingLicense.expiryDate) <= new Date()) {
+            return res.status(400).json({ message: "Enter a valid future driving license expiry date" })
+        }
+        if (resolvedBookingType === "home_delivery" && !resolvedUserDetails?.address?.trim()) {
+            return res.status(400).json({ message: "Full address is required for a home test drive" })
+        }
+        if (resolvedBookingType === "home_delivery" && !isValidPincode(resolvedUserDetails?.pincode)) {
+            return res.status(400).json({ message: "Enter a valid 6-digit pincode for a home test drive" })
         }
         if (resolvedBookingType === "home_delivery" && !showroom.servicePincodes.includes(String(resolvedUserDetails?.pincode || "").trim())) {
             return res.status(400).json({ message: "Home test drive is not available for this pincode" })
@@ -386,10 +409,11 @@ const createBooking = async (req, res) => {
 
         return res.status(201).json({ message: "Booking request submitted", data: booking })
     } catch (err) {
+        logServerError("createBooking failed", err)
         if (err.code === 11000) {
             return res.status(409).json({ message: "This time slot is already reserved for the selected car. Please try another slot or date." })
         }
-        return res.status(500).json({ message: "Error while creating booking", err: err.message || err })
+        return res.status(500).json({ message: "Error while creating booking" })
     }
 }
 
@@ -413,7 +437,8 @@ router.get("/bookings/taken-slots", verifyToken, async (req, res) => {
         const takenSlots = bookings.map(b => b.scheduledTime)
         return res.json({ message: "Taken slots fetched", data: takenSlots })
     } catch (err) {
-        return res.status(500).json({ message: "Error while fetching taken slots", err })
+        logServerError("get taken slots failed", err)
+        return res.status(500).json({ message: "Error while fetching taken slots" })
     }
 })
 
@@ -453,7 +478,8 @@ router.get("/bookings", verifyToken, async (req, res) => {
             },
         })
     } catch (err) {
-        return res.status(500).json({ message: "Error while fetching bookings", err })
+        logServerError("get user bookings failed", err)
+        return res.status(500).json({ message: "Error while fetching bookings" })
     }
 })
 
@@ -473,7 +499,8 @@ router.get("/bookings/:bookingId", verifyToken, async (req, res) => {
 
         return res.json({ message: "Booking fetched successfully", data: booking })
     } catch (err) {
-        return res.status(500).json({ message: "Error while fetching booking", err })
+        logServerError("get booking by id failed", err)
+        return res.status(500).json({ message: "Error while fetching booking" })
     }
 })
 
@@ -521,7 +548,8 @@ router.post("/bookings/:bookingId/cancel", verifyToken, async (req, res) => {
 
         return res.json({ message: "Booking cancelled", data: booking })
     } catch (err) {
-        return res.status(500).json({ message: "Error while cancelling booking", err })
+        logServerError("cancel booking failed", err)
+        return res.status(500).json({ message: "Error while cancelling booking" })
     }
 })
 
@@ -534,6 +562,9 @@ router.delete("/bookings/:bookingId", verifyToken, async (req, res) => {
 
         if (!booking) {
             return res.status(404).json({ message: "Booking not found" })
+        }
+        if (booking.status !== "pending") {
+            return res.status(400).json({ message: "Only pending bookings can be deleted" })
         }
         
         booking.status = "cancelled"
@@ -548,7 +579,8 @@ router.delete("/bookings/:bookingId", verifyToken, async (req, res) => {
         
         return res.json({ message: "Booking deleted/cancelled successfully" })
     } catch (err) {
-        return res.status(500).json({ message: "Error while deleting booking", err })
+        logServerError("delete booking failed", err)
+        return res.status(500).json({ message: "Error while deleting booking" })
     }
 })
 
@@ -568,6 +600,9 @@ router.post("/bookings/:bookingId/rate", verifyToken, async (req, res) => {
 
         const stars = Number(req.body?.stars || 0)
         const review = String(req.body?.review || "").trim()
+        if (!Number.isInteger(stars) || stars < 1 || stars > 5) {
+            return res.status(400).json({ message: "Rating must be between 1 and 5 stars" })
+        }
         booking.userRating = {
             stars,
             review,
@@ -586,7 +621,8 @@ router.post("/bookings/:bookingId/rate", verifyToken, async (req, res) => {
 
         return res.json({ message: "Booking rated successfully", data: booking })
     } catch (err) {
-        return res.status(500).json({ message: "Error while rating booking", err })
+        logServerError("rate booking failed", err)
+        return res.status(500).json({ message: "Error while rating booking" })
     }
 })
 

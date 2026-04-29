@@ -120,4 +120,8 @@ const showroomSchema = new Schema({
     },
 }, { timestamps: true })
 
+showroomSchema.index({ status: 1, "address.city": 1 })
+showroomSchema.index({ status: 1, "address.pincode": 1 })
+showroomSchema.index({ status: 1, servicePincodes: 1 })
+
 module.exports = mongoose.model("showrooms", showroomSchema)

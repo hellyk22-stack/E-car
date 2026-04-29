@@ -112,6 +112,6 @@ const router = createBrowserRouter([
     },
 ])
 
-const AppRouter = () => <RouterProvider router={router} />
+const EnhancedAppRouter = () => <RouterProvider router={router} />
 
-export default AppRouter
+export default EnhancedAppRouter

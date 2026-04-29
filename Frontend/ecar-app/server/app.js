@@ -14,6 +14,16 @@ import wishlistRoutes from './routes/wishlist.js'
 import notificationRoutes from './routes/notification.js'
 import { startPriceAlertCron } from './utils/priceAlertCron.js'
 
+const requiredEnvVars = ['MONGO_URL', 'JWT_SECRET']
+const missingEnvVars = requiredEnvVars.filter((name) => !process.env[name]?.trim())
+
+if (missingEnvVars.length > 0) {
+    console.error(
+        `Startup error: missing required environment variable(s): ${missingEnvVars.join(', ')}`
+    )
+    process.exit(1)
+}
+
 const app = express()
 
 app.use(cors())

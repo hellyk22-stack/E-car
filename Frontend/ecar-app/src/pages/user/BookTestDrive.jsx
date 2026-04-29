@@ -30,6 +30,7 @@ const BookTestDrive = () => {
     const [savingAddress, setSavingAddress] = useState(false)
     const [modalOpen, setModalOpen] = useState(false)
     const [showroomHasInventory, setShowroomHasInventory] = useState(true)
+    const hasSavedPincode = String(profile.address?.pincode || '').trim().length > 0
 
     useEffect(() => {
         const load = async () => {
@@ -188,7 +189,7 @@ const BookTestDrive = () => {
                         <div className="rounded-[28px] border border-white/10 bg-white/[0.035] p-6">
                             <p className="text-xs font-semibold uppercase tracking-[0.22em] text-sky-200">Profile Address</p>
                             <p className="mt-3 text-sm text-white/60" style={{ fontFamily: "'DM Sans', sans-serif" }}>
-                                Add your address here to improve nearby showroom results. Map auto-pick can be added next, but it needs a maps provider setup.
+                                Save your address here to improve nearby showroom matching and home test drive coverage.
                             </p>
                             <div className="mt-5 grid gap-4">
                                 <textarea
@@ -220,7 +221,7 @@ const BookTestDrive = () => {
                                     <input
                                         value={profile.address?.pincode || ''}
                                         onChange={(event) => updateAddress('pincode', event.target.value)}
-                                        placeholder="Pincode"
+                                        placeholder="6-digit pincode"
                                         className="w-full rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-white outline-none"
                                     />
                                 </div>
@@ -238,7 +239,21 @@ const BookTestDrive = () => {
                         {mode === 'showroom' && (
                             <div className="rounded-[28px] border border-white/10 bg-white/[0.035] p-6">
                                 <p className="text-xs font-semibold uppercase tracking-[0.22em] text-sky-200">Nearby Showrooms</p>
-                                {loadingShowrooms ? <p className="mt-3 text-white/60">Loading nearby approved showrooms...</p> : (
+                                {!hasSavedPincode ? (
+                                    <div className="mt-4 rounded-[22px] border border-dashed border-white/10 bg-slate-950/30 p-4">
+                                        <p className="text-sm font-semibold text-white">Add your pincode to discover nearby showrooms</p>
+                                        <p className="mt-2 text-sm text-white/55" style={{ fontFamily: "'DM Sans', sans-serif" }}>
+                                            Save your address first and we will match approved showrooms near you automatically.
+                                        </p>
+                                    </div>
+                                ) : loadingShowrooms ? <p className="mt-3 text-white/60">Loading nearby approved showrooms...</p> : showrooms.length === 0 ? (
+                                    <div className="mt-4 rounded-[22px] border border-dashed border-white/10 bg-slate-950/30 p-4">
+                                        <p className="text-sm font-semibold text-white">No approved showrooms found nearby</p>
+                                        <p className="mt-2 text-sm text-white/55" style={{ fontFamily: "'DM Sans', sans-serif" }}>
+                                            Try updating your pincode or switch to home matching to keep browsing cars.
+                                        </p>
+                                    </div>
+                                ) : (
                                     <div className="mt-4 space-y-3">
                                         {showrooms.map((item) => (
                                             <button key={item._id} type="button" onClick={() => setSelectedShowroom(item)} className="w-full rounded-[22px] p-4 text-left" style={{ background: selectedShowroom?._id === item._id ? 'rgba(56,189,248,0.14)' : 'rgba(255,255,255,0.03)', border: `1px solid ${selectedShowroom?._id === item._id ? 'rgba(125,211,252,0.28)' : 'rgba(255,255,255,0.08)'}` }}>
@@ -257,7 +272,7 @@ const BookTestDrive = () => {
                             <div className="mb-5 rounded-[24px] border border-amber-300/20 bg-amber-400/10 p-4">
                                 <p className="text-sm font-semibold text-amber-100">This showroom does not have any cars available for its registered brands yet.</p>
                                 <p className="mt-1 text-sm text-amber-50/75" style={{ fontFamily: "'DM Sans', sans-serif" }}>
-                                    Only the showroom&apos;s own brand cars can be booked from this page.
+                                    Try another showroom or switch to home matching to continue the booking demo.
                                 </p>
                             </div>
                         )}
@@ -269,7 +284,7 @@ const BookTestDrive = () => {
                                     {visibleCars.length} car{visibleCars.length === 1 ? '' : 's'} shown
                                 </p>
                             </div>
-                            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search car, brand, fuel, type" className="w-full max-w-sm rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-white outline-none" />
+                            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search by car, brand, fuel type, or body style" className="w-full max-w-sm rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-white outline-none" />
                         </div>
 
                         {!cars.length ? (
@@ -277,7 +292,7 @@ const BookTestDrive = () => {
                                 <p className="text-lg font-semibold text-white">No cars available right now</p>
                                 <p className="mt-2 text-sm text-white/55" style={{ fontFamily: "'DM Sans', sans-serif" }}>
                                     {mode === 'showroom'
-                                        ? 'No cars from this showroom\'s registered brands are available right now.'
+                                        ? (selectedShowroom ? 'This showroom does not have a bookable inventory for the selected flow right now.' : 'Select a showroom first to view bookable cars.')
                                         : 'We could not load the car catalog right now. Please refresh and try again.'}
                                 </p>
                                 {mode === 'showroom' && !showroomId && allCars.length > 0 && (
@@ -314,7 +329,7 @@ const BookTestDrive = () => {
                                 <p className="text-xs font-semibold uppercase tracking-[0.22em] text-sky-100">Ready To Continue</p>
                                 <p className="mt-2 text-lg font-semibold text-white">{selectedCar.brand} {selectedCar.name}</p>
                                 <button type="button" onClick={() => setModalOpen(true)} className="mt-4 rounded-2xl bg-[linear-gradient(135deg,#38bdf8,#2563eb)] px-5 py-3 text-sm font-semibold text-white">
-                                    Continue To Booking Details
+                                    Continue to booking details
                                 </button>
                             </div>
                         )}

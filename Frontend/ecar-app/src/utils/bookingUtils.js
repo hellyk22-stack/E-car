@@ -1,4 +1,4 @@
-export const formatCurrency = (value) => `Rs ${Math.round(Number(value || 0)).toLocaleString('en-IN')}`
+export const formatCurrency = (value) => `₹ ${Math.round(Number(value || 0)).toLocaleString('en-IN')}`
 
 export const formatDate = (value, options = {}) =>
     value
@@ -32,11 +32,11 @@ export const getStatusTone = (status) => {
 }
 
 export const statusLabels = {
-    pending: 'Pending',
-    confirmed: 'Confirmed',
-    completed: 'Completed',
+    pending: 'Waiting for showroom confirmation',
+    confirmed: 'Appointment confirmed',
+    completed: 'Test drive completed',
     cancelled: 'Cancelled',
-    rejected: 'Rejected',
+    rejected: 'Showroom declined',
 }
 
 export const bookingTypeLabels = {
@@ -48,9 +48,9 @@ export const bookingTypeLabels = {
 
 export const timelineSteps = [
     { key: 'pending', label: 'Submitted', icon: '1' },
-    { key: 'awaiting_confirmation', label: 'Waiting For Showroom Confirmation', icon: '2' },
-    { key: 'confirmed', label: 'Appointment Confirmed', icon: '3' },
-    { key: 'completed', label: 'Test Drive Completed', icon: '4' },
+    { key: 'awaiting_confirmation', label: 'Waiting for showroom confirmation', icon: '2' },
+    { key: 'confirmed', label: 'Appointment confirmed', icon: '3' },
+    { key: 'completed', label: 'Test drive completed', icon: '4' },
 ]
 
 export const getTimelineState = (status) => {
@@ -58,6 +58,18 @@ export const getTimelineState = (status) => {
     if (status === 'completed') return 'completed'
     if (status === 'confirmed') return 'confirmed'
     return 'pending'
+}
+
+export const getStatusSummary = (status) => {
+    const summaries = {
+        pending: 'The showroom has received your request and is reviewing the appointment.',
+        confirmed: 'Your slot is confirmed. You can now review the final appointment details below.',
+        completed: 'Your visit is complete and ready for feedback.',
+        cancelled: 'This booking was cancelled before the appointment took place.',
+        rejected: 'The showroom could not confirm this request.',
+    }
+
+    return summaries[status] || summaries.pending
 }
 
 export const getBookingTypeTone = (bookingType) => {

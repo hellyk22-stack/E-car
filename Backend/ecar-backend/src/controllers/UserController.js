@@ -12,6 +12,10 @@ const { logAdminActivity } = require("../utils/AdminActivityLogger")
 
 const JWT_SECRET = process.env.JWT_SECRET || "ecar_secret"
 
+const logServerError = (context, error) => {
+    console.error(`[UserController] ${context}`, error)
+}
+
 const escapeRegex = (value = "") => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 
 const formatDateTime = (value) => value ? new Date(value).toISOString() : ""
@@ -87,7 +91,7 @@ const registerUser = async (req, res) => {
             data: safeUser
         })
     } catch (err) {
-        console.log(err)
+        logServerError("registerUser failed", err)
         if (err?.code === 11000) {
             return res.status(409).json({
                 message: "An account with this email already exists",
@@ -95,7 +99,6 @@ const registerUser = async (req, res) => {
         }
         res.status(500).json({
             message: "Error while registering user",
-            err: err
         })
     }
 }
@@ -157,10 +160,9 @@ const loginUser = async (req, res) => {
             }
         })
     } catch (error) {
-        console.log(error)
+        logServerError("loginUser failed", error)
         res.status(500).json({
             message: "Error while logging in",
-            error: error
         })
     }
 }
@@ -180,7 +182,8 @@ const getMyProfile = async (req, res) => {
             },
         })
     } catch (err) {
-        return res.status(500).json({ message: "Error while fetching profile", err })
+        logServerError("getMyProfile failed", err)
+        return res.status(500).json({ message: "Error while fetching profile" })
     }
 }
 
@@ -213,7 +216,8 @@ const updateMyProfile = async (req, res) => {
             data: sanitizeUser(user),
         })
     } catch (err) {
-        return res.status(500).json({ message: "Error while updating profile", err })
+        logServerError("updateMyProfile failed", err)
+        return res.status(500).json({ message: "Error while updating profile" })
     }
 }
 
@@ -246,9 +250,9 @@ const getAllUsers = async (req, res) => {
             }
         })
     } catch (err) {
+        logServerError("getAllUsers failed", err)
         res.status(500).json({
             message: "Error while fetching users",
-            err: err
         })
     }
 }
@@ -300,7 +304,8 @@ const updateUser = async (req, res) => {
         const safeUser = await userSchema.findById(user._id).select("-password").lean()
         return res.json({ message: "User updated successfully", data: safeUser })
     } catch (err) {
-        return res.status(500).json({ message: "Error while updating user", err })
+        logServerError("updateUser failed", err)
+        return res.status(500).json({ message: "Error while updating user" })
     }
 }
 
@@ -380,7 +385,8 @@ const getUserActivity = async (req, res) => {
             },
         })
     } catch (err) {
-        return res.status(500).json({ message: "Error while fetching user activity", err })
+        logServerError("getUserActivity failed", err)
+        return res.status(500).json({ message: "Error while fetching user activity" })
     }
 }
 
@@ -405,7 +411,8 @@ const exportUsersCsv = async (req, res) => {
             updatedAt: formatDateTime(user.updatedAt),
         })))
     } catch (err) {
-        return res.status(500).json({ message: "Error while exporting users csv", err })
+        logServerError("exportUsersCsv failed", err)
+        return res.status(500).json({ message: "Error while exporting users csv" })
     }
 }
 

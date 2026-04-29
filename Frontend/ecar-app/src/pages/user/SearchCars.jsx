@@ -13,6 +13,8 @@ const defaultBudgetInputs = {
     tenureYears: 5,
 }
 
+const formatInr = (value) => `₹ ${Number(value || 0).toLocaleString('en-IN')}`
+
 const calculateAffordablePrice = (monthlyBudget, annualRate, years, downPaymentPercent) => {
     const emi = Number(monthlyBudget || 0)
     const months = Number(years || 0) * 12
@@ -127,13 +129,13 @@ const SearchCars = () => {
 
     const handleApplySmartBudget = () => {
         if (!Number(budgetInputs.monthlyBudget)) {
-            toast.info('Enter a monthly budget to calculate affordability.')
+            toast.info('Enter a monthly budget to estimate what you can afford.')
             return
         }
 
         const maxAffordablePrice = Math.round(affordablePrice)
         if (!maxAffordablePrice) {
-            toast.error('Unable to calculate an affordable price range with these inputs.')
+            toast.error('We could not calculate a budget range with these inputs.')
             return
         }
 
@@ -160,7 +162,7 @@ const SearchCars = () => {
             }
         } catch (err) {
             console.error('Wishlist update failed', err)
-            toast.error(err.response?.data?.message || 'Unable to update wishlist right now.')
+            toast.error(err.response?.data?.message || 'Unable to update your wishlist right now.')
         }
     }
 
@@ -180,9 +182,9 @@ const SearchCars = () => {
         <div className="min-h-screen bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-900 px-4 py-10 text-slate-100">
             <div className="mx-auto max-w-6xl">
                 <div className="mb-8">
-                    <h2 className="mb-2 text-3xl font-bold text-white md:text-4xl">Search Cars</h2>
+                    <h2 className="mb-2 text-3xl font-bold text-white md:text-4xl">Find Your Next Car</h2>
                     <p className="mt-2 max-w-2xl text-lg text-slate-300 md:text-xl">
-                        Find premium cars fast with advanced filters and curated results.
+                        Explore available cars with smart filters, quick comparisons, and an EMI-aware budget helper.
                     </p>
                 </div>
 
@@ -190,15 +192,15 @@ const SearchCars = () => {
                     <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
                         <div>
                             <p className="mb-2 text-sm font-semibold uppercase tracking-[0.28em] text-indigo-200">Smart Budget Filter</p>
-                            <h3 className="text-2xl font-bold text-white">Turn monthly EMI into an affordable price cap</h3>
+                            <h3 className="text-2xl font-bold text-white">Turn your monthly EMI into a realistic price cap</h3>
                             <p className="mt-2 max-w-2xl text-sm text-slate-400">
-                                Enter what you can comfortably spend each month and the app will estimate the car price range you can afford.
+                                Enter what feels comfortable each month and we will estimate a practical purchase budget for you.
                             </p>
                         </div>
                         <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 px-4 py-3">
-                            <p className="text-[11px] uppercase tracking-[0.24em] text-emerald-200">Affordable Price</p>
+                            <p className="text-[11px] uppercase tracking-[0.24em] text-emerald-200">Estimated Budget</p>
                             <p className="mt-1 text-2xl font-bold text-white">
-                                {affordablePrice ? `₹ ${Math.round(affordablePrice).toLocaleString('en-IN')}` : 'Enter budget'}
+                                {affordablePrice ? formatInr(Math.round(affordablePrice)) : 'Enter your monthly budget'}
                             </p>
                         </div>
                     </div>
@@ -212,11 +214,11 @@ const SearchCars = () => {
                                 value={budgetInputs.monthlyBudget}
                                 onChange={handleBudgetInputChange}
                                 className={filterInputClassName}
-                                placeholder="e.g. 18000"
+                                placeholder="Example: 18,000"
                             />
                         </div>
                         <div>
-                            <label className="mb-1.5 block text-xs font-medium text-indigo-100">Down payment</label>
+                            <label className="mb-1.5 block text-xs font-medium text-indigo-100">Down payment (%)</label>
                             <input
                                 name="downPaymentPercent"
                                 type="range"
@@ -230,7 +232,7 @@ const SearchCars = () => {
                             <p className="mt-2 text-sm text-slate-300">{budgetInputs.downPaymentPercent}%</p>
                         </div>
                         <div>
-                            <label className="mb-1.5 block text-xs font-medium text-indigo-100">Interest rate</label>
+                            <label className="mb-1.5 block text-xs font-medium text-indigo-100">Interest rate (%)</label>
                             <input
                                 name="interestRate"
                                 type="range"
@@ -244,7 +246,7 @@ const SearchCars = () => {
                             <p className="mt-2 text-sm text-slate-300">{budgetInputs.interestRate.toFixed(1)}% p.a.</p>
                         </div>
                         <div>
-                            <label className="mb-1.5 block text-xs font-medium text-indigo-100">Tenure</label>
+                            <label className="mb-1.5 block text-xs font-medium text-indigo-100">Loan tenure</label>
                             <input
                                 name="tenureYears"
                                 type="range"
@@ -262,14 +264,14 @@ const SearchCars = () => {
                     <div className="mt-5 grid grid-cols-1 gap-4 lg:grid-cols-[1fr_auto]">
                         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                             {[
-                                { label: 'Loan amount', value: budgetLoanAmount },
-                                { label: 'Down payment', value: budgetDownPayment },
+                                { label: 'Estimated loan amount', value: budgetLoanAmount },
+                                { label: 'Estimated down payment', value: budgetDownPayment },
                                 { label: 'Estimated car budget', value: affordablePrice },
                             ].map((item) => (
                                 <div key={item.label} className="rounded-2xl border border-white/8 bg-white/[0.03] p-4">
                                     <p className="text-[11px] uppercase tracking-[0.24em] text-slate-400">{item.label}</p>
                                     <p className="mt-2 text-lg font-bold text-white">
-                                        {item.value ? `₹ ${Math.round(item.value).toLocaleString('en-IN')}` : '--'}
+                                        {item.value ? formatInr(Math.round(item.value)) : '--'}
                                     </p>
                                 </div>
                             ))}
@@ -299,52 +301,52 @@ const SearchCars = () => {
                 </div>
 
                 <div className="mb-6 rounded-2xl border border-blue-500/30 bg-slate-800/80 p-5 text-white shadow-2xl">
-                    <h3 className="mb-4 text-sm font-semibold uppercase tracking-wide text-blue-200">Filter Options</h3>
+                    <h3 className="mb-4 text-sm font-semibold uppercase tracking-wide text-blue-200">Refine Your Search</h3>
                     <form onSubmit={handleSubmit(onSubmit)}>
                         <div className="mb-4 grid grid-cols-1 gap-4 md:grid-cols-3 lg:grid-cols-5">
                             <div>
-                                <label className="mb-1.5 block text-xs font-medium text-blue-100">Brand</label>
-                                <input className={filterInputClassName} placeholder="e.g. Honda" {...register('brand')} />
+                                <label className="mb-1.5 block text-xs font-medium text-blue-100">Brand or model</label>
+                                <input className={filterInputClassName} placeholder="Try Honda, Tata, Nexon..." {...register('brand')} />
                             </div>
                             <div>
-                                <label className="mb-1.5 block text-xs font-medium text-blue-100">Type</label>
+                                <label className="mb-1.5 block text-xs font-medium text-blue-100">Body type</label>
                                 <div className="relative">
                                     <select className={filterSelectClassName} {...register('type')}>
-                                        <option value="" className="bg-slate-900 text-slate-100">All Types</option>
+                                        <option value="" className="bg-slate-900 text-slate-100">All body types</option>
                                         <option value="Hatchback" className="bg-slate-900 text-slate-100">Hatchback</option>
                                         <option value="Sedan" className="bg-slate-900 text-slate-100">Sedan</option>
                                         <option value="SUV" className="bg-slate-900 text-slate-100">SUV</option>
                                         <option value="Luxury" className="bg-slate-900 text-slate-100">Luxury</option>
                                     </select>
-                                    <span className="pointer-events-none absolute inset-y-0 right-4 flex items-center text-slate-400">?</span>
+                                    <span className="pointer-events-none absolute inset-y-0 right-4 flex items-center text-slate-400">⌄</span>
                                 </div>
                             </div>
                             <div>
-                                <label className="mb-1.5 block text-xs font-medium text-blue-100">Fuel</label>
+                                <label className="mb-1.5 block text-xs font-medium text-blue-100">Fuel type</label>
                                 <div className="relative">
                                     <select className={filterSelectClassName} {...register('fuel')}>
-                                        <option value="" className="bg-slate-900 text-slate-100">All Fuel Types</option>
+                                        <option value="" className="bg-slate-900 text-slate-100">All fuel types</option>
                                         <option value="Petrol" className="bg-slate-900 text-slate-100">Petrol</option>
                                         <option value="Diesel" className="bg-slate-900 text-slate-100">Diesel</option>
                                         <option value="Electric" className="bg-slate-900 text-slate-100">Electric</option>
                                     </select>
-                                    <span className="pointer-events-none absolute inset-y-0 right-4 flex items-center text-slate-400">?</span>
+                                    <span className="pointer-events-none absolute inset-y-0 right-4 flex items-center text-slate-400">⌄</span>
                                 </div>
                             </div>
                             <div>
                                 <label className="mb-1.5 block text-xs font-medium text-blue-100">Transmission</label>
                                 <div className="relative">
                                     <select className={filterSelectClassName} {...register('transmission')}>
-                                        <option value="" className="bg-slate-900 text-slate-100">All</option>
+                                        <option value="" className="bg-slate-900 text-slate-100">All transmissions</option>
                                         <option value="Manual" className="bg-slate-900 text-slate-100">Manual</option>
                                         <option value="Automatic" className="bg-slate-900 text-slate-100">Automatic</option>
                                     </select>
-                                    <span className="pointer-events-none absolute inset-y-0 right-4 flex items-center text-slate-400">?</span>
+                                    <span className="pointer-events-none absolute inset-y-0 right-4 flex items-center text-slate-400">⌄</span>
                                 </div>
                             </div>
                             <div>
-                            <label className="mb-1.5 block text-xs font-medium text-blue-100">Max Price (₹)</label>
-                                <input type="number" className={filterInputClassName} placeholder="e.g. 1000000" {...register('maxPrice')} />
+                                <label className="mb-1.5 block text-xs font-medium text-blue-100">Maximum price (₹)</label>
+                                <input type="number" className={filterInputClassName} placeholder="Example: 10,00,000" {...register('maxPrice')} />
                             </div>
                         </div>
                         <div className="flex flex-wrap gap-3">
@@ -352,14 +354,14 @@ const SearchCars = () => {
                                 type="submit"
                                 className="rounded-xl bg-gradient-to-r from-blue-500 to-indigo-600 px-8 py-2.5 text-sm font-semibold text-white shadow-lg transition-all duration-300 hover:from-blue-600 hover:to-indigo-700 hover:shadow-2xl"
                             >
-                                Search
+                                Search Cars
                             </button>
                             <button
                                 type="button"
                                 onClick={handleReset}
                                 className="rounded-xl border border-blue-300/50 bg-white/10 px-8 py-2.5 text-sm font-medium text-blue-100 transition hover:bg-white/20"
                             >
-                                Reset
+                                Clear Filters
                             </button>
                         </div>
                     </form>
@@ -371,12 +373,12 @@ const SearchCars = () => {
                             {searched
                                 ? results.length > 0
                                     ? `Found ${results.length} car${results.length > 1 ? 's' : ''}`
-                                    : 'No cars match your filters'
+                                    : 'No cars match your current filters'
                                 : `Showing all ${results.length} cars`}
                         </p>
                         {budgetActive && affordablePrice > 0 && (
                             <p className="rounded-full border border-emerald-400/20 bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-200">
-                                Budget cap active up to ₹ {Math.round(affordablePrice).toLocaleString('en-IN')}
+                                Budget cap active up to {formatInr(Math.round(affordablePrice))}
                             </p>
                         )}
                     </div>
@@ -412,14 +414,14 @@ const SearchCars = () => {
 
                 {!loading && searched && results.length === 0 && (
                     <div className="py-20 text-center">
-                        <p className="mb-4 text-4xl font-semibold text-blue-200">No Match</p>
-                        <h3 className="mb-2 text-xl font-bold text-gray-200">No cars found</h3>
-                        <p className="mb-6 text-gray-400">Try adjusting your filters or widen the budget assumptions.</p>
+                        <p className="mb-4 text-4xl font-semibold text-blue-200">No matching cars</p>
+                        <h3 className="mb-2 text-xl font-bold text-gray-200">We could not find a car for these filters</h3>
+                        <p className="mb-6 text-gray-400">Try broadening the brand, fuel, or price range to see more options.</p>
                         <button
                             onClick={handleReset}
                             className="rounded-xl bg-blue-500 px-6 py-2.5 font-medium text-white transition hover:bg-blue-600"
                         >
-                            Reset Filters
+                            Clear all filters
                         </button>
                     </div>
                 )}

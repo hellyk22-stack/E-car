@@ -84,4 +84,7 @@ const carSchema = new Schema({
     }
 })
 
+carSchema.index({ status: 1, type: 1, fuel: 1, price: 1 })
+carSchema.index({ status: 1, brand: 1, price: 1 })
+
 module.exports = mongoose.model("cars", carSchema)
