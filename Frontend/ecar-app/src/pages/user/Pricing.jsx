@@ -3,61 +3,30 @@ import { useNavigate } from 'react-router-dom'
 import { toast } from 'react-toastify'
 import axiosInstance from '../../utils/axiosInstance'
 import {
+    buildPlanFeatureRows,
     fetchSubscriptionStatus,
     formatBillingCycle,
     formatPlanName,
     loadRazorpay,
 } from '../../utils/subscription'
 
-const plans = {
-    explorer: {
-        monthly: 0,
-        annual: 0,
-        caption: 'Free forever',
-        features: [
-            ['Smart Compare', 'Up to 3 cars'],
-            ['Basic Compare', 'Unlimited'],
-            ['AI Advisor', '3 chats per day'],
-            ['Wishlist', '5 saved cars'],
-            ['Test Drives', '1 active booking'],
-            ['Price History Chart', 'No'],
-            ['Export Comparison PDF', 'No'],
-            ['Export Comparison Excel', 'No'],
-            ['Price Drop Alerts', 'No'],
-        ],
-    },
-    pro_buyer: {
-        monthly: 199,
-        annual: 1910,
-        caption: 'For active car buyers',
-        features: [
-            ['Smart Compare', 'Up to 4 cars'],
-            ['Basic Compare', 'Unlimited'],
-            ['AI Advisor', 'Unlimited'],
-            ['Wishlist', 'Unlimited'],
-            ['Test Drives', '3 active bookings'],
-            ['Price History Chart', 'Yes'],
-            ['Export Comparison PDF', 'Yes'],
-            ['Export Comparison Excel', 'No'],
-            ['Price Drop Alerts', 'No'],
-        ],
-    },
-    elite: {
-        monthly: 499,
-        annual: 4790,
-        caption: 'For premium shoppers',
-        features: [
-            ['Smart Compare', 'Up to 6 cars'],
-            ['Basic Compare', 'Unlimited'],
-            ['AI Advisor', 'Unlimited'],
-            ['Wishlist', 'Unlimited'],
-            ['Test Drives', 'Unlimited'],
-            ['Price History Chart', 'Yes'],
-            ['Export Comparison PDF', 'Yes'],
-            ['Export Comparison Excel', 'Yes'],
-            ['Priority Showrooms', 'Yes'],
-            ['Price Drop Alerts', 'Yes'],
-        ],
+const explorerPlan = {
+    id: 'explorer',
+    name: 'Explorer',
+    description: 'Free forever',
+    monthlyPrice: 0,
+    annualPrice: 0,
+    limits: {
+        smartCompareLimit: 3,
+        aiChatsPerDay: 3,
+        wishlistLimit: 5,
+        activeBookingsLimit: 1,
+        priceHistory: false,
+        exportPDF: false,
+        exportExcel: false,
+        priorityShowroom: false,
+        priceAlerts: false,
+        earlyAccess: false,
     },
 }
 
@@ -65,20 +34,36 @@ const Pricing = () => {
     const navigate = useNavigate()
     const [billingCycle, setBillingCycle] = useState('monthly')
     const [subscription, setSubscription] = useState(null)
+    const [plans, setPlans] = useState([explorerPlan])
     const [loading, setLoading] = useState(true)
     const [subscribingPlan, setSubscribingPlan] = useState('')
 
     useEffect(() => {
-        fetchSubscriptionStatus()
-            .then(setSubscription)
-            .catch(() => toast.error('Unable to load your current plan right now.'))
-            .finally(() => setLoading(false))
+        const loadData = async () => {
+            try {
+                const [status, plansRes] = await Promise.all([
+                    fetchSubscriptionStatus(),
+                    axiosInstance.get('/payment/plans'),
+                ])
+                setSubscription(status)
+                setPlans([explorerPlan, ...(plansRes.data.data || [])])
+            } catch {
+                toast.error('Unable to load pricing right now.')
+            } finally {
+                setLoading(false)
+            }
+        }
+
+        loadData()
     }, [])
 
-    const annualSavings = useMemo(() => ({
-        pro_buyer: Math.max(plans.pro_buyer.monthly * 12 - plans.pro_buyer.annual, 0),
-        elite: Math.max(plans.elite.monthly * 12 - plans.elite.annual, 0),
-    }), [])
+    const annualSavings = useMemo(() => {
+        const map = {}
+        plans.forEach((plan) => {
+            map[plan.id] = Math.max(((plan.monthlyPrice || 0) / 100) * 12 - ((plan.annualPrice || 0) / 100), 0)
+        })
+        return map
+    }, [plans])
 
     const handleSubscribe = async (planKey) => {
         if (planKey === 'explorer') {
@@ -94,27 +79,38 @@ const Pricing = () => {
                 billingCycle,
             })
 
-            const order = orderRes.data.data
+            const order = orderRes.data
             const options = {
-                key: order.keyId,
+                key: order.key,
                 amount: order.amount,
                 currency: order.currency,
                 name: 'E-CAR',
                 description: `${formatPlanName(planKey)} Plan - ${formatBillingCycle(billingCycle)}`,
                 order_id: order.orderId,
                 handler: async (response) => {
-                    await axiosInstance.post('/payment/verify', {
-                        razorpayOrderId: response.razorpay_order_id,
-                        razorpayPaymentId: response.razorpay_payment_id,
-                        razorpaySignature: response.razorpay_signature,
-                        plan: planKey,
-                        billingCycle,
-                    })
-                    toast.success('Subscription activated successfully.')
-                    navigate('/user/subscription')
+                    try {
+                        await axiosInstance.post('/payment/verify-payment', {
+                            razorpay_order_id: response.razorpay_order_id,
+                            razorpay_payment_id: response.razorpay_payment_id,
+                            razorpay_signature: response.razorpay_signature,
+                        })
+                        const latestStatus = await fetchSubscriptionStatus()
+                        setSubscription(latestStatus)
+                        toast.success('Subscription activated successfully!')
+                        navigate('/user/subscription')
+                    } catch (verifyError) {
+                        toast.error(verifyError.response?.data?.message || 'Payment succeeded, but verification failed.')
+                    }
+                },
+                modal: {
+                    ondismiss: () => {
+                        toast.info('Checkout was closed before payment completion.')
+                    },
                 },
                 prefill: {
                     name: localStorage.getItem('name') || 'User',
+                    contact: localStorage.getItem('phone') || '',
+                    email: localStorage.getItem('email') || '',
                 },
                 theme: {
                     color: '#378ADD',
@@ -122,6 +118,9 @@ const Pricing = () => {
             }
 
             const instance = new Razorpay(options)
+            instance.on('payment.failed', (response) => {
+                toast.error(response.error?.description || 'Payment failed. Please try again.')
+            })
             instance.open()
         } catch (error) {
             toast.error(error.response?.data?.message || 'Unable to start checkout right now.')
@@ -172,9 +171,11 @@ const Pricing = () => {
                 )}
 
                 <div className="grid gap-6 lg:grid-cols-3">
-                    {Object.entries(plans).map(([planKey, plan]) => {
+                    {plans.map((plan) => {
+                        const planKey = plan.id
                         const isCurrentPlan = subscription?.plan === planKey
-                        const price = billingCycle === 'annual' ? plan.annual : plan.monthly
+                        const price = billingCycle === 'annual' ? (plan.annualPrice || 0) / 100 : (plan.monthlyPrice || 0) / 100
+                        const features = buildPlanFeatureRows(plan.limits || {})
 
                         return (
                             <div
@@ -183,8 +184,8 @@ const Pricing = () => {
                             >
                                 <div className="flex items-start justify-between gap-3">
                                     <div>
-                                        <p className="pricing-title text-2xl font-bold text-white">{formatPlanName(planKey)}</p>
-                                        <p className="pricing-copy mt-2 text-sm text-slate-400">{plan.caption}</p>
+                                        <p className="pricing-title text-2xl font-bold text-white">{plan.name || formatPlanName(planKey)}</p>
+                                        <p className="pricing-copy mt-2 text-sm text-slate-400">{plan.description}</p>
                                     </div>
                                     {isCurrentPlan && (
                                         <span className="pricing-copy rounded-full border border-emerald-300/30 bg-emerald-400/10 px-3 py-1 text-xs font-semibold text-emerald-200">
@@ -206,7 +207,7 @@ const Pricing = () => {
                                 </div>
 
                                 <div className="pricing-copy mt-8 space-y-3">
-                                    {plan.features.map(([label, value]) => (
+                                    {features.map(([label, value]) => (
                                         <div key={label} className="flex items-start justify-between gap-4 rounded-2xl border border-white/8 bg-slate-950/30 px-4 py-3">
                                             <span className="text-sm text-slate-200">{label}</span>
                                             <span className="text-right text-sm font-semibold text-white">{value}</span>

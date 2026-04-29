@@ -1,21 +1,29 @@
 import React, { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import axiosInstance from '../../utils/axiosInstance'
-import { getCarImage } from '../../utils/carImageUtils'
+import { DEFAULT_CAR_IMAGE, getCarImage } from '../../utils/carImageUtils'
 import { formatCurrency } from '../../utils/bookingUtils'
+import { formatShowroomRating } from '../../utils/showroomUtils'
+import { mergeShowroomInventoryWithCatalog } from '../../utils/showroomInventory'
 
 const ShowroomDetail = () => {
     const navigate = useNavigate()
     const { id } = useParams()
     const [showroom, setShowroom] = useState(null)
+    const [availableCars, setAvailableCars] = useState([])
     const [loading, setLoading] = useState(true)
 
     useEffect(() => {
         const load = async () => {
             setLoading(true)
             try {
-                const res = await axiosInstance.get(`/user/showrooms/${id}`)
-                setShowroom(res.data.data)
+                const [showroomRes, carsRes] = await Promise.all([
+                    axiosInstance.get(`/user/showrooms/${id}`),
+                    axiosInstance.get('/car/cars'),
+                ])
+                const nextShowroom = showroomRes.data.data
+                setShowroom(nextShowroom)
+                setAvailableCars(mergeShowroomInventoryWithCatalog(nextShowroom, carsRes.data.data || []))
             } catch (error) {
                 console.error('Failed to load showroom detail', error)
             } finally {
@@ -64,7 +72,7 @@ const ShowroomDetail = () => {
                                 <div className="mt-5 grid grid-cols-2 gap-3 text-sm" style={{ fontFamily: "'DM Sans', sans-serif" }}>
                                     <div className="rounded-2xl p-4" style={{ background: 'rgba(255,255,255,0.03)' }}>
                                         <p style={{ color: 'rgba(255,255,255,0.45)' }}>Rating</p>
-                                        <p className="mt-2 text-white font-semibold">{Number(showroom.rating?.average || 0).toFixed(1)} ★</p>
+                                        <p className="mt-2 text-white font-semibold">{formatShowroomRating(showroom)} ★</p>
                                     </div>
                                     <div className="rounded-2xl p-4" style={{ background: 'rgba(255,255,255,0.03)' }}>
                                         <p style={{ color: 'rgba(255,255,255,0.45)' }}>Hours</p>
@@ -90,11 +98,18 @@ const ShowroomDetail = () => {
                                 </div>
                             </div>
                             <div className="grid gap-5 md:grid-cols-2">
-                                {(showroom.cars || []).map((item) => {
-                                    const car = item.carId
+                                {availableCars.map((car) => {
                                     return (
-                                        <div key={car?._id || item._id} className="overflow-hidden rounded-[28px]" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
-                                            <img src={getCarImage(car)} alt={car?.name} className="h-48 w-full object-cover" />
+                                        <div key={car?._id} className="overflow-hidden rounded-[28px]" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                                            <img
+                                                src={getCarImage(car)}
+                                                alt={car?.name}
+                                                className="h-48 w-full object-cover"
+                                                onError={(event) => {
+                                                    event.currentTarget.onerror = null
+                                                    event.currentTarget.src = DEFAULT_CAR_IMAGE
+                                                }}
+                                            />
                                             <div className="p-5">
                                                 <div className="flex items-start justify-between gap-3">
                                                     <div>
@@ -102,13 +117,21 @@ const ShowroomDetail = () => {
                                                         <p className="mt-1 text-sm" style={{ color: 'rgba(255,255,255,0.55)', fontFamily: "'DM Sans', sans-serif" }}>{car?.brand} • {car?.fuel}</p>
                                                     </div>
                                                     <span className="rounded-full px-3 py-1 text-xs font-semibold" style={{ background: 'rgba(37,99,235,0.12)', color: '#bfdbfe' }}>
-                                                        {formatCurrency(item.customPrice || car?.price)}
+                                                        {formatCurrency(car?.price)}
                                                     </span>
                                                 </div>
                                             </div>
                                         </div>
                                     )
                                 })}
+                                {availableCars.length === 0 && (
+                                    <div className="md:col-span-2 rounded-[28px] border border-dashed border-white/10 px-6 py-16 text-center">
+                                        <p className="text-lg font-semibold text-white">No brand-matched cars available right now</p>
+                                        <p className="mt-3 text-sm text-white/55" style={{ fontFamily: "'DM Sans', sans-serif" }}>
+                                            This showroom only accepts bookings for its registered brands.
+                                        </p>
+                                    </div>
+                                )}
                             </div>
                         </div>
                     </div>

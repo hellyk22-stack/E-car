@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { toast } from 'react-toastify'
 import axiosInstance from '../../utils/axiosInstance'
+import LocationPickerModal from '../../components/showroom/LocationPickerModal'
 
 const ShowroomProfile = () => {
     const [profile, setProfile] = useState({
@@ -18,11 +19,14 @@ const ShowroomProfile = () => {
         availableDays: '',
         open: '',
         close: '',
+        lat: '',
+        lng: '',
         staff: [{ name: '', phone: '', role: 'test_drive_attendant' }],
     })
     const [logo, setLogo] = useState(null)
     const [logoPreview, setLogoPreview] = useState('')
     const [saving, setSaving] = useState(false)
+    const [locationPickerOpen, setLocationPickerOpen] = useState(false)
 
     useEffect(() => {
         const load = async () => {
@@ -44,6 +48,8 @@ const ShowroomProfile = () => {
                     availableDays: (data?.availableDays || []).join(', '),
                     open: data?.openingHours?.open || '',
                     close: data?.openingHours?.close || '',
+                    lat: data?.location?.lat ?? '',
+                    lng: data?.location?.lng ?? '',
                     staff: data?.staff?.length ? data.staff : [{ name: '', phone: '', role: 'test_drive_attendant' }],
                 })
                 setLogoPreview(data?.logo || '')
@@ -90,6 +96,8 @@ const ShowroomProfile = () => {
                 availableDays: (data?.availableDays || []).join(', '),
                 open: data?.openingHours?.open || '',
                 close: data?.openingHours?.close || '',
+                lat: data?.location?.lat ?? '',
+                lng: data?.location?.lng ?? '',
                 staff: data?.staff?.length ? data.staff : [{ name: '', phone: '', role: 'test_drive_attendant' }],
             }))
             setLogoPreview(data?.logo || logoPreview)
@@ -102,82 +110,124 @@ const ShowroomProfile = () => {
         }
     }
 
-    return (
-        <form onSubmit={submitProfile}>
-            <div className="mb-8">
-                <p className="text-xs font-semibold uppercase tracking-[0.24em]" style={{ color: '#93c5fd' }}>Profile</p>
-                <h1 className="mt-2 text-3xl font-bold text-white">Showroom settings</h1>
-            </div>
+    const addressHint = [profile.street, profile.city, profile.state, profile.pincode].filter(Boolean).join(', ')
 
-            <div className="grid gap-6 lg:grid-cols-[0.8fr_1.2fr]">
-                <div className="rounded-[28px] p-6" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
-                    <h2 className="text-2xl font-bold text-white">Branding</h2>
-                    {logoPreview && <img src={logoPreview} alt="Showroom logo" className="mt-5 h-48 w-full rounded-2xl object-cover" />}
-                    <input
-                        type="file"
-                        accept="image/*"
-                        onChange={(event) => {
-                            const file = event.target.files?.[0]
-                            setLogo(file || null)
-                            if (file) setLogoPreview(URL.createObjectURL(file))
-                        }}
-                        className="mt-5 w-full rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 text-white outline-none"
-                    />
+    return (
+        <>
+            <form onSubmit={submitProfile}>
+                <div className="mb-8">
+                    <p className="text-xs font-semibold uppercase tracking-[0.24em]" style={{ color: '#93c5fd' }}>Profile</p>
+                    <h1 className="mt-2 text-3xl font-bold text-white">Showroom settings</h1>
                 </div>
 
-                <div className="rounded-[28px] p-6" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
-                    <div className="grid gap-4 md:grid-cols-2">
-                        {[
-                            ['name', 'Showroom name'],
-                            ['email', 'Email'],
-                            ['phone', 'Phone'],
-                            ['brands', 'Registered brands'],
-                            ['serviceRadius', 'Service radius (km)'],
-                            ['street', 'Street'],
-                            ['city', 'City'],
-                            ['state', 'State'],
-                            ['pincode', 'Pincode'],
-                            ['servicePincodes', 'Service pincodes'],
-                            ['availableDays', 'Available days'],
-                            ['open', 'Opening time'],
-                            ['close', 'Closing time'],
-                        ].map(([key, label]) => (
-                            <div key={key}>
-                                <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.18em]" style={{ color: 'rgba(255,255,255,0.45)' }}>{label}</label>
-                                <input value={profile[key]} onChange={(event) => setProfile((prev) => ({ ...prev, [key]: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 text-white outline-none" />
-                            </div>
-                        ))}
+                <div className="grid gap-6 lg:grid-cols-[0.8fr_1.2fr]">
+                    <div className="rounded-[28px] p-6" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                        <h2 className="text-2xl font-bold text-white">Branding</h2>
+                        {logoPreview && <img src={logoPreview} alt="Showroom logo" className="mt-5 h-48 w-full rounded-2xl object-cover" />}
+                        <input
+                            type="file"
+                            accept="image/*"
+                            onChange={(event) => {
+                                const file = event.target.files?.[0]
+                                setLogo(file || null)
+                                if (file) setLogoPreview(URL.createObjectURL(file))
+                            }}
+                            className="mt-5 w-full rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 text-white outline-none"
+                        />
                     </div>
 
-                    <div className="mt-4">
-                        <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.18em]" style={{ color: 'rgba(255,255,255,0.45)' }}>Description</label>
-                        <textarea value={profile.description} onChange={(event) => setProfile((prev) => ({ ...prev, description: event.target.value }))} rows="4" className="w-full rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 text-white outline-none" />
-                    </div>
-
-                    <div className="mt-6">
-                        <h3 className="text-lg font-bold text-white">Test drive staff</h3>
-                        <div className="mt-4 space-y-3">
-                            {profile.staff.map((member, index) => (
-                                <div key={`${member.name}-${index}`} className="grid gap-3 md:grid-cols-[1fr_1fr_auto]">
-                                    <input value={member.name} onChange={(event) => setProfile((prev) => ({ ...prev, staff: prev.staff.map((item, itemIndex) => itemIndex === index ? { ...item, name: event.target.value } : item) }))} placeholder="Name" className="rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 text-white outline-none" />
-                                    <input value={member.phone} onChange={(event) => setProfile((prev) => ({ ...prev, staff: prev.staff.map((item, itemIndex) => itemIndex === index ? { ...item, phone: event.target.value } : item) }))} placeholder="Phone" className="rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 text-white outline-none" />
-                                    <button type="button" onClick={() => setProfile((prev) => ({ ...prev, staff: prev.staff.filter((_, itemIndex) => itemIndex !== index) }))} className="rounded-2xl px-4 py-3 text-sm font-semibold" style={{ background: 'rgba(239,68,68,0.08)', color: '#fca5a5' }}>
-                                        Remove
-                                    </button>
+                    <div className="rounded-[28px] p-6" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                        <div className="grid gap-4 md:grid-cols-2">
+                            {[
+                                ['name', 'Showroom name'],
+                                ['email', 'Email'],
+                                ['phone', 'Phone'],
+                                ['brands', 'Registered brands'],
+                                ['serviceRadius', 'Service radius (km)'],
+                                ['street', 'Street'],
+                                ['city', 'City'],
+                                ['state', 'State'],
+                                ['pincode', 'Pincode'],
+                                ['servicePincodes', 'Service pincodes'],
+                                ['availableDays', 'Available days'],
+                                ['open', 'Opening time'],
+                                ['close', 'Closing time'],
+                            ].map(([key, label]) => (
+                                <div key={key}>
+                                    <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.18em]" style={{ color: 'rgba(255,255,255,0.45)' }}>{label}</label>
+                                    <input value={profile[key]} onChange={(event) => setProfile((prev) => ({ ...prev, [key]: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 text-white outline-none" />
                                 </div>
                             ))}
                         </div>
-                        <button type="button" onClick={() => setProfile((prev) => ({ ...prev, staff: [...prev.staff, { name: '', phone: '', role: 'test_drive_attendant' }] }))} className="mt-4 rounded-2xl px-4 py-3 text-sm font-semibold text-white" style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}>
-                            Add staff member
+
+                        <div className="mt-6 rounded-[24px] border border-white/10 bg-slate-900/70 p-4">
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                                <div>
+                                    <p className="text-xs font-semibold uppercase tracking-[0.18em]" style={{ color: 'rgba(255,255,255,0.45)' }}>Showroom coordinates</p>
+                                    <p className="mt-1 text-sm text-white/50" style={{ fontFamily: "'DM Sans', sans-serif" }}>
+                                        Drop a map pin to fill these coordinates automatically.
+                                    </p>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => setLocationPickerOpen(true)}
+                                    className="rounded-2xl border border-sky-300/20 bg-sky-400/10 px-4 py-2 text-sm font-semibold text-sky-100"
+                                >
+                                    Pick location from map
+                                </button>
+                            </div>
+                            <div className="mt-4 grid gap-4 md:grid-cols-2">
+                                {[
+                                    ['lat', 'Latitude'],
+                                    ['lng', 'Longitude'],
+                                ].map(([key, label]) => (
+                                    <div key={key}>
+                                        <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.18em]" style={{ color: 'rgba(255,255,255,0.45)' }}>{label}</label>
+                                        <input value={profile[key]} onChange={(event) => setProfile((prev) => ({ ...prev, [key]: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-white outline-none" />
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        <div className="mt-4">
+                            <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.18em]" style={{ color: 'rgba(255,255,255,0.45)' }}>Description</label>
+                            <textarea value={profile.description} onChange={(event) => setProfile((prev) => ({ ...prev, description: event.target.value }))} rows="4" className="w-full rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 text-white outline-none" />
+                        </div>
+
+                        <div className="mt-6">
+                            <h3 className="text-lg font-bold text-white">Test drive staff</h3>
+                            <div className="mt-4 space-y-3">
+                                {profile.staff.map((member, index) => (
+                                    <div key={`${member.name}-${index}`} className="grid gap-3 md:grid-cols-[1fr_1fr_auto]">
+                                        <input value={member.name} onChange={(event) => setProfile((prev) => ({ ...prev, staff: prev.staff.map((item, itemIndex) => itemIndex === index ? { ...item, name: event.target.value } : item) }))} placeholder="Name" className="rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 text-white outline-none" />
+                                        <input value={member.phone} onChange={(event) => setProfile((prev) => ({ ...prev, staff: prev.staff.map((item, itemIndex) => itemIndex === index ? { ...item, phone: event.target.value } : item) }))} placeholder="Phone" className="rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 text-white outline-none" />
+                                        <button type="button" onClick={() => setProfile((prev) => ({ ...prev, staff: prev.staff.filter((_, itemIndex) => itemIndex !== index) }))} className="rounded-2xl px-4 py-3 text-sm font-semibold" style={{ background: 'rgba(239,68,68,0.08)', color: '#fca5a5' }}>
+                                            Remove
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                            <button type="button" onClick={() => setProfile((prev) => ({ ...prev, staff: [...prev.staff, { name: '', phone: '', role: 'test_drive_attendant' }] }))} className="mt-4 rounded-2xl px-4 py-3 text-sm font-semibold text-white" style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                                Add staff member
+                            </button>
+                        </div>
+
+                        <button type="submit" disabled={saving} className="mt-6 rounded-2xl px-5 py-3 text-sm font-semibold text-white disabled:opacity-50" style={{ background: 'linear-gradient(135deg, #2563eb, #1d4ed8)' }}>
+                            {saving ? 'Saving...' : 'Save profile'}
                         </button>
                     </div>
-
-                    <button type="submit" disabled={saving} className="mt-6 rounded-2xl px-5 py-3 text-sm font-semibold text-white disabled:opacity-50" style={{ background: 'linear-gradient(135deg, #2563eb, #1d4ed8)' }}>
-                        {saving ? 'Saving...' : 'Save profile'}
-                    </button>
                 </div>
-            </div>
-        </form>
+            </form>
+
+            <LocationPickerModal
+                open={locationPickerOpen}
+                onClose={() => setLocationPickerOpen(false)}
+                onSelect={({ lat, lng }) => setProfile((prev) => ({ ...prev, lat, lng }))}
+                initialLocation={{ lat: profile.lat, lng: profile.lng }}
+                addressHint={addressHint}
+                title="Pick showroom location"
+            />
+        </>
     )
 }
 

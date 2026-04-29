@@ -16,6 +16,7 @@ import {
 } from '../../utils/bookingUtils'
 
 const bookingSkeletons = Array.from({ length: 3 }, (_, index) => index)
+const activeBookingStatuses = ['pending', 'confirmed']
 
 const TestDriveBookings = () => {
     const navigate = useNavigate()
@@ -26,15 +27,27 @@ const TestDriveBookings = () => {
     const [loading, setLoading] = useState(true)
     const [cancelTarget, setCancelTarget] = useState(null)
     const [cancellingId, setCancellingId] = useState('')
+    const [hasActiveBooking, setHasActiveBooking] = useState(false)
 
     const loadBookings = async () => {
         setLoading(true)
         try {
             const params = new URLSearchParams({ page: String(page), limit: '10' })
             if (status) params.set('status', status)
-            const res = await axiosInstance.get(`/user/bookings?${params.toString()}`)
+            const [res, activeResponses] = await Promise.all([
+                axiosInstance.get(`/user/bookings?${params.toString()}`),
+                Promise.all(
+                    activeBookingStatuses.map((bookingStatus) =>
+                        axiosInstance.get(`/user/bookings?page=1&limit=1&status=${bookingStatus}`)
+                    )
+                ),
+            ])
+
             setBookings(res.data.data || [])
             setMeta(res.data.meta || { totalPages: 1 })
+            setHasActiveBooking(
+                activeResponses.some((response) => (response.data.data || []).length > 0)
+            )
         } catch (error) {
             console.error('Failed to load user bookings', error)
             toast.error('Unable to load your bookings right now.')
@@ -64,6 +77,7 @@ const TestDriveBookings = () => {
     }
 
     const showFilter = !loading && bookings.length > 0
+    const showBookTestDriveButton = !hasActiveBooking
 
     return (
         <div className="min-h-screen px-4 py-10">
@@ -73,16 +87,18 @@ const TestDriveBookings = () => {
                         <p className="text-xs font-semibold uppercase tracking-[0.24em]" style={{ color: '#818cf8' }}>Bookings</p>
                         <h1 className="mt-2 text-4xl font-black text-white">My test drive bookings</h1>
                     </div>
-                    {showFilter && (
-                        <select value={status} onChange={(event) => { setPage(1); setStatus(event.target.value) }} className="rounded-2xl border border-white/10 bg-slate-900/80 px-4 py-3 text-white outline-none">
-                            <option value="">All statuses</option>
-                            <option value="pending">Pending</option>
-                            <option value="confirmed">Confirmed</option>
-                            <option value="completed">Completed</option>
-                            <option value="cancelled">Cancelled</option>
-                            <option value="rejected">Rejected</option>
-                        </select>
-                    )}
+                    <div className="flex flex-wrap items-center gap-3">
+                        {showFilter && (
+                            <select value={status} onChange={(event) => { setPage(1); setStatus(event.target.value) }} className="rounded-2xl border border-white/10 bg-slate-900/80 px-4 py-3 text-white outline-none">
+                                <option value="">All statuses</option>
+                                <option value="pending">Pending</option>
+                                <option value="confirmed">Confirmed</option>
+                                <option value="completed">Completed</option>
+                                <option value="cancelled">Cancelled</option>
+                                <option value="rejected">Rejected</option>
+                            </select>
+                        )}
+                    </div>
                 </div>
 
                 <div className="rounded-[28px] p-6" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
@@ -109,14 +125,16 @@ const TestDriveBookings = () => {
                                 Explore nearby showrooms, choose a Home drive or Showroom drive, and we&apos;ll keep the full booking journey here.
                             </p>
                             <div className="mt-6 flex flex-wrap justify-center gap-3">
-                                <button
-                                    type="button"
-                                    onClick={() => navigate('/user/book-test-drive')}
-                                    className="rounded-2xl px-5 py-3 text-sm font-semibold text-white"
-                                    style={{ background: 'linear-gradient(135deg, #6366f1, #8b5cf6)' }}
-                                >
-                                    Book a test drive
-                                </button>
+                                {showBookTestDriveButton && (
+                                    <button
+                                        type="button"
+                                        onClick={() => navigate('/user/book-test-drive')}
+                                        className="rounded-2xl px-5 py-3 text-sm font-semibold text-white"
+                                        style={{ background: 'linear-gradient(135deg, #6366f1, #8b5cf6)' }}
+                                    >
+                                        Book a test drive
+                                    </button>
+                                )}
                                 {status && (
                                     <button
                                         type="button"

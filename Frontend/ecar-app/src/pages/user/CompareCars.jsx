@@ -3,7 +3,11 @@ import { useNavigate } from 'react-router-dom'
 import { toast } from 'react-toastify'
 import axiosInstance from '../../utils/axiosInstance'
 import CarCard from '../../components/user/CarCard'
-import { EXPLORER_FALLBACK, fetchSubscriptionStatus, formatPlanName } from '../../utils/subscription'
+import { EXPLORER_FALLBACK,    fetchSubscriptionStatus,
+    formatPlanName,
+    isUnlimitedLimit,
+    checkUsageWarnings,
+} from '../../utils/subscription'
 
 const comparisonRows = [
     ['Brand', 'brand'],
@@ -29,7 +33,10 @@ const numericMetrics = {
     reviewCount: 'higher',
 }
 
-const getCarId = (car) => car?._id || car?.id
+const getCarId = (car) => {
+    const id = car?._id || car?.id
+    return id ? String(id) : null
+}
 
 const numericValue = (car, key) => {
     const parsed = Number(String(car?.[key] ?? 0).replace(/[^\d.]/g, ''))
@@ -143,8 +150,27 @@ const CompareCars = () => {
             try {
                 const carsRes = await axiosInstance.get('/car/cars')
                 const status = await fetchSubscriptionStatus()
-                setAllCars(carsRes.data.data || [])
+                const rawCars = carsRes.data.data || []
+                
+                // Deduplicate by ID to prevent phantom selection
+                const uniqueCars = []
+                const seenIds = new Set()
+                rawCars.forEach(car => {
+                    const id = getCarId(car)
+                    if (id && !seenIds.has(id)) {
+                        seenIds.add(id)
+                        uniqueCars.push(car)
+                    }
+                })
+
+                setAllCars(uniqueCars)
                 setSubscription(status)
+
+                // Show usage warnings if any
+                const warnings = checkUsageWarnings(status.usage)
+                warnings.forEach(w => {
+                    if (w.type === 'compare') toast.info(w.message)
+                })
             } catch (error) {
                 toast.error('Unable to load compare tools right now.')
             } finally {
@@ -176,11 +202,17 @@ const CompareCars = () => {
     const resultCars = comparison?.cars || []
 
     const handleSelect = (car) => {
+        const carId = getCarId(car)
+        if (!carId) return
+
         setComparison(null)
         setCompareNotice('')
-        setSelected((prev) => prev.some((item) => item._id === car._id)
-            ? prev.filter((item) => item._id !== car._id)
-            : [...prev, car])
+        setSelected((prev) => {
+            const isSelected = prev.some((item) => getCarId(item) === carId)
+            return isSelected
+                ? prev.filter((item) => getCarId(item) !== carId)
+                : [...prev, car]
+        })
     }
 
     const runComparison = async () => {
@@ -228,7 +260,12 @@ const CompareCars = () => {
             const remaining = response.data?.remainingComparisons
             setCompareNotice(typeof remaining === 'number' ? `${remaining} smart comparison${remaining === 1 ? '' : 's'} remaining on Explorer.` : '')
         } catch (error) {
-            toast.error(error.response?.data?.message || 'Unable to compare the selected cars.')
+            if (error.response?.data?.limitReached) {
+                toast.warning(error.response?.data?.message || 'Your compare limit is full for this plan.')
+                navigate('/user/pricing')
+            } else {
+                toast.error(error.response?.data?.message || 'Unable to compare the selected cars.')
+            }
         } finally {
             setCompareLoading(false)
         }
@@ -247,7 +284,7 @@ const CompareCars = () => {
                     <p className="compare-copy text-xs font-semibold uppercase tracking-[0.24em] text-indigo-200">Compare</p>
                     <h1 className="compare-title mt-2 text-4xl font-black text-white">Explorer users can compare for free</h1>
                     <p className="compare-copy mt-3 max-w-3xl text-slate-300">
-                        Every user gets the Explorer plan by default. You can compare up to {smartCompareLimit} cars for free, and we will send you to pricing only when you go beyond that limit.
+                        Your current plan includes {smartCompareLimit} smart comparisons. If you go beyond your plan limit, we will show a toast and take you to pricing.
                     </p>
                 </div>
 
@@ -269,7 +306,7 @@ const CompareCars = () => {
                         {selected.length} selected
                     </div>
                     <div className="compare-copy rounded-full border border-sky-300/20 bg-sky-400/10 px-4 py-2 text-sm text-sky-100">
-                        {formatPlanName(subscription?.plan)} | compare up to {smartCompareLimit} cars
+                        {formatPlanName(subscription?.plan)} | {smartCompareLimit} smart comparisons
                     </div>
 
                     <button
@@ -284,7 +321,7 @@ const CompareCars = () => {
 
                 {selected.length > smartCompareLimit && (
                     <div className="compare-copy mb-6 rounded-3xl border border-amber-300/20 bg-amber-400/10 p-5 text-amber-100">
-                        You selected {selected.length} cars. Explorer supports up to {smartCompareLimit}. Click compare to upgrade on the pricing page.
+                        You selected {selected.length} cars. Your current plan supports up to {smartCompareLimit}. Click compare to upgrade on the pricing page.
                     </div>
                 )}
 
@@ -294,10 +331,10 @@ const CompareCars = () => {
                     <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
                         {sortedCars.map((car) => (
                             <CarCard
-                                key={car._id}
+                                key={getCarId(car) || `car-${car.name}-${car.brand}`}
                                 car={car}
                                 selectable={true}
-                                selected={selected.some((item) => item._id === car._id)}
+                                selected={selected.some((item) => getCarId(item) === getCarId(car))}
                                 onSelect={handleSelect}
                             />
                         ))}
@@ -483,3 +520,4 @@ const CompareCars = () => {
 }
 
 export default CompareCars
+

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import axiosInstance from '../../utils/axiosInstance'
 import { daysUntilExpiry, fetchSubscriptionStatus, formatPlanName } from '../../utils/subscription'
+import FloatingAIAdvisor from './FloatingAIAdvisor'
 
 export const UserNavbar = () => {
     const [menuOpen, setMenuOpen] = useState(false)
@@ -266,6 +267,11 @@ export const UserNavbar = () => {
             <div style={{ background: '#0a0a0f', minHeight: 'calc(100vh - 64px)' }}>
                 <Outlet />
             </div>
+
+            <FloatingAIAdvisor />
+
         </>
     )
 }
+
+

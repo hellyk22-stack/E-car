@@ -7,9 +7,5 @@ export default defineConfig({
     host: true,
     port: 5173,
     historyApiFallback: true,
-    proxy: {
-      '/user': 'http://localhost:3000',
-      '/car': 'http://localhost:3000'
-    }
   }
 })

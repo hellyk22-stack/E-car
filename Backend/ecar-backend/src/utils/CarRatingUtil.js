@@ -17,8 +17,15 @@ const serializeCar = (car) => {
     const reviewRating = resolveReviewRating(plainCar)
     const safetyRating = resolveSafetyRating(plainCar)
 
+    const rawId = plainCar._id || plainCar.id
+    const finalId = rawId 
+        ? String(rawId) 
+        : `ext_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+
     return {
         ...plainCar,
+        _id: finalId,
+        id: finalId,
         rating: reviewRating,
         reviewRating,
         safetyRating,

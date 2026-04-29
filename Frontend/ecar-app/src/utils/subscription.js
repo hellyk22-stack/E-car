@@ -1,4 +1,5 @@
 import axiosInstance from './axiosInstance'
+import { getRole, isAuthenticated } from './auth'
 
 export const EXPLORER_FALLBACK = {
     plan: 'explorer',
@@ -53,10 +54,46 @@ export const daysUntilExpiry = (value) => {
     return Math.ceil(diff / (1000 * 60 * 60 * 24))
 }
 
+export const buildPlanFeatureRows = (limits = {}) => {
+    const rows = [
+        ['Smart Compare', isUnlimitedLimit(limits.smartCompareLimit) ? 'Unlimited' : `${limits.smartCompareLimit || 0} smart comparisons`],
+        ['Basic Compare', 'Unlimited'],
+        ['AI Advisor', isUnlimitedLimit(limits.aiChatsPerDay) ? 'Unlimited' : `${limits.aiChatsPerDay || 0} chats per day`],
+        ['Wishlist', isUnlimitedLimit(limits.wishlistLimit) ? 'Unlimited' : `${limits.wishlistLimit || 0} saved cars`],
+        ['Test Drives', isUnlimitedLimit(limits.activeBookingsLimit) ? 'Unlimited' : `${limits.activeBookingsLimit || 0} active bookings`],
+        ['Price History Chart', limits.priceHistory ? 'Yes' : 'No'],
+        ['Export Comparison PDF', limits.exportPDF ? 'Yes' : 'No'],
+        ['Export Comparison Excel', limits.exportExcel ? 'Yes' : 'No'],
+        ['Price Drop Alerts', limits.priceAlerts ? 'Yes' : 'No'],
+    ]
+
+    if (limits.priorityShowroom) rows.push(['Priority Showrooms', 'Yes'])
+    if (limits.earlyAccess) rows.push(['Early Access', 'Yes'])
+
+    return rows
+}
+
 export const fetchSubscriptionStatus = async () => {
+    if (!isAuthenticated() || getRole() !== 'user') {
+        return EXPLORER_FALLBACK
+    }
+
     try {
         const res = await axiosInstance.get('/payment/status')
-        return { ...EXPLORER_FALLBACK, ...(res.data.data || {}) }
+        const data = res.data?.data || {}
+
+        return {
+            ...EXPLORER_FALLBACK,
+            ...data,
+            limits: {
+                ...EXPLORER_FALLBACK.limits,
+                ...(data.limits || {}),
+            },
+            usage: {
+                ...EXPLORER_FALLBACK.usage,
+                ...(data.usage || {}),
+            },
+        }
     } catch (_error) {
         return EXPLORER_FALLBACK
     }
@@ -87,4 +124,57 @@ export const loadRazorpay = async () => {
     })
 
     return window.Razorpay
+}
+export const checkUsageWarnings = (usage = {}) => {
+    const warnings = []
+    
+    // Check Wishlist (Warn if 1 slot remains)
+    if (usage.wishlistLimit && !isUnlimitedLimit(usage.wishlistLimit)) {
+        const remaining = usage.wishlistLimit - usage.wishlistCount
+        if (remaining === 1) {
+            warnings.push({
+                type: 'wishlist',
+                message: 'Wishlist almost full! You have only 1 slot left on your current plan.',
+                severity: 'warning'
+            })
+        }
+    }
+
+    // Check Test Drives (Warn if 1 slot remains)
+    if (usage.activeBookingsLimit && !isUnlimitedLimit(usage.activeBookingsLimit)) {
+        const remaining = usage.activeBookingsLimit - usage.activeBookingsCount
+        if (remaining === 1) {
+            warnings.push({
+                type: 'booking',
+                message: 'Booking limit nearing! Only 1 active test drive slot remaining.',
+                severity: 'warning'
+            })
+        }
+    }
+
+    // Check AI Chats (Warn at 80% usage)
+    if (usage.aiChatsLimit && !isUnlimitedLimit(usage.aiChatsLimit)) {
+        const ratio = usage.aiChatsToday / usage.aiChatsLimit
+        if (ratio >= 0.8 && usage.aiChatsToday < usage.aiChatsLimit) {
+            warnings.push({
+                type: 'ai',
+                message: `Daily AI limit diagnostic: You have used ${usage.aiChatsToday}/${usage.aiChatsLimit} of your daily chats.`,
+                severity: 'info'
+            })
+        }
+    }
+
+    // Check Smart Comparisons (Warn if 1 slot remains)
+    if (usage.savedComparisonsLimit && !isUnlimitedLimit(usage.savedComparisonsLimit)) {
+        const remaining = usage.savedComparisonsLimit - usage.savedComparisonsCount
+        if (remaining === 1) {
+            warnings.push({
+                type: 'compare',
+                message: 'Comparison storage almost full! Only 1 saved comparison slot left.',
+                severity: 'warning'
+            })
+        }
+    }
+
+    return warnings
 }

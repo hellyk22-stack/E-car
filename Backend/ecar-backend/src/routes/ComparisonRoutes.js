@@ -1,4 +1,5 @@
 const express = require('express')
+const mongoose = require('mongoose')
 const { verifyToken } = require('../middleware/AuthMiddleware')
 const User = require('../models/UserModel')
 const Car = require('../models/CarModel')
@@ -6,154 +7,167 @@ const SavedComparison = require('../models/SavedComparisonModel')
 const isPro = require('../middleware/isProMiddleware')
 const { resolveReviewRating, resolveSafetyRating, serializeCar } = require('../utils/CarRatingUtil')
 const { getComparisonAnalysis } = require('../utils/ComparisonAnalysis')
+const { getActiveSubscription, isUnlimited } = require('../utils/SubscriptionUtil')
 
 const router = express.Router()
 
-// Perform comparison
 router.post('/compare', verifyToken, async (req, res) => {
     try {
         const { carIds, save = false, name } = req.body
         const userId = req.user.id
 
-        if (!carIds || !Array.isArray(carIds) || carIds.length < 2 || carIds.length > 10) {
-            return res.status(400).json({ message: "Select 2-10 cars for comparison" })
+        const safeCarIds = Array.isArray(carIds) ? carIds : []
+        const uniqueCarIds = Array.from(new Set(safeCarIds.map(id => String(id))));
+        
+        if (uniqueCarIds.length < 2) {
+            return res.status(400).json({ message: 'Select at least 2 unique cars for comparison' })
         }
 
+        const validObjectIds = uniqueCarIds.filter(id => mongoose.Types.ObjectId.isValid(id))
+        
+        if (validObjectIds.length < uniqueCarIds.length) {
+            console.warn(`Comparison: Filtered out ${uniqueCarIds.length - validObjectIds.length} invalid car IDs`)
+        }
+
+        if (validObjectIds.length < 2) {
+            return res.status(400).json({ message: 'Invalid cars selected. Please try selecting different cars.' })
+        }
         const user = await User.findById(userId)
         if (!user) {
-            return res.status(404).json({ message: "User not found" })
+            return res.status(404).json({ message: 'User not found' })
         }
 
-        // Check limits for free users
-        if (!user.isPro) {
-            if (user.compareCount >= 3) {
-                return res.status(403).json({
-                    message: "Comparison limit reached. Upgrade to premium for unlimited comparisons.",
-                    limitReached: true
-                })
-            }
+        const subscription = getActiveSubscription(user)
+        const compareLimit = subscription.limits.smartCompareLimit
+
+        if (!isUnlimited(compareLimit) && uniqueCarIds.length > compareLimit) {
+            return res.status(403).json({
+                message: `${subscription.planLabel} limit is ${compareLimit} smart comparisons at a time. Upgrade to expand your toolkit.`,
+                limitReached: true,
+                compareLimit,
+            })
         }
 
-        // Fetch car details
-        const cars = await Car.find({ _id: { $in: carIds } }).select('name brand type price mileage engine seating fuel transmission rating reviewRating safetyRating image reviewCount')
+        const cars = await Car.find({ _id: { $in: validObjectIds } })
+            .select('name brand type price mileage engine seating fuel transmission rating reviewRating safetyRating image reviewCount')
 
-        if (cars.length !== carIds.length) {
-            return res.status(400).json({ message: "Some cars not found" })
+        if (cars.length < 2) {
+            return res.status(400).json({ message: 'Some of the selected cars could not be found' })
         }
 
         const normalizedCars = cars.map(serializeCar)
-        const aiAnalysisDetails = await getComparisonAnalysis(normalizedCars)
-
-        // Increment comparison count for free users
-        if (!user.isPro) {
-            user.compareCount += 1
-            await user.save()
+        
+        // AI analysis is secondary; if it fails, fallback to local analysis
+        let aiAnalysisDetails = null
+        try {
+            aiAnalysisDetails = await getComparisonAnalysis(normalizedCars)
+        } catch (aiErr) {
+            console.error("Comparison AI Error:", aiErr)
+            // ComparisonAnalysis.js should already handle internal errors, 
+            // but this catch ensures the route itself never crashes.
         }
 
-        // Prepare comparison data
         const comparisonData = {
-            cars: cars.map(car => ({
+            cars: normalizedCars.map((car) => ({
                 id: car._id,
                 name: car.name,
                 brand: car.brand,
+                type: car.type,
                 price: car.price,
                 mileage: car.mileage,
                 engine: car.engine,
+                fuel: car.fuel,
+                transmission: car.transmission,
                 seating: car.seating,
-                rating: resolveReviewRating(car),
-                reviewRating: resolveReviewRating(car),
-                safetyRating: resolveSafetyRating(car),
+                rating: car.rating,
+                reviewRating: car.reviewRating,
+                safetyRating: car.safetyRating,
                 image: car.image,
                 reviewCount: car.reviewCount || 0,
             })),
             metrics: {
-                price: cars.map(c => c.price),
-                mileage: cars.map(c => c.mileage),
-                engine: cars.map(c => c.engine),
-                seating: cars.map(c => c.seating),
-                rating: cars.map(c => resolveReviewRating(c)),
-                reviewRating: cars.map(c => resolveReviewRating(c)),
-                safetyRating: cars.map(c => resolveSafetyRating(c))
+                price: normalizedCars.map((item) => item.price),
+                mileage: normalizedCars.map((item) => item.mileage),
+                engine: normalizedCars.map((item) => item.engine),
+                seating: normalizedCars.map((item) => item.seating),
+                rating: normalizedCars.map((item) => item.rating),
+                reviewRating: normalizedCars.map((item) => item.reviewRating),
+                safetyRating: normalizedCars.map((item) => item.safetyRating),
             },
-            aiAnalysis: aiAnalysisDetails.summary,
-            aiAnalysisDetails,
+            aiAnalysis: aiAnalysisDetails?.summary || "Direct specification comparison below.",
+            aiAnalysisDetails: aiAnalysisDetails,
         }
 
-        // If save is requested and user is pro
-        if (save && user.isPro) {
+        if (save && subscription.isPremium) {
             if (!name) {
-                return res.status(400).json({ message: "Name is required to save comparison" })
+                return res.status(400).json({ message: 'Name is required to save comparison' })
             }
 
             const savedComparison = new SavedComparison({
                 userId,
                 name,
-                cars: cars.map(car => ({
+                cars: normalizedCars.map((car) => ({
                     carId: car._id,
                     name: car.name,
                     brand: car.brand,
+                    type: car.type,
                     price: car.price,
                     mileage: car.mileage,
                     engine: car.engine,
+                    fuel: car.fuel,
+                    transmission: car.transmission,
                     seating: car.seating,
-                    rating: resolveReviewRating(car),
-                    reviewRating: resolveReviewRating(car),
-                    safetyRating: resolveSafetyRating(car)
+                    rating: car.rating,
+                    reviewRating: car.reviewRating,
+                    safetyRating: car.safetyRating,
                 })),
                 comparisonData,
-                isAdvanced: carIds.length > 3
+                isAdvanced: uniqueCarIds.length > 3,
             })
 
             await savedComparison.save()
-        } else if (save && !user.isPro) {
-            return res.status(403).json({ message: "Saving comparisons is a premium feature" })
+        } else if (save && !subscription.isPremium) {
+            return res.status(403).json({ message: 'Saving comparisons is a premium feature' })
         }
 
         res.json({
-            message: "Comparison performed successfully",
+            message: 'Comparison performed successfully',
             data: comparisonData,
-            remainingComparisons: user.isPro ? 'unlimited' : Math.max(0, 3 - user.compareCount),
-            saved: save && user.isPro
+            compareLimit,
+            saved: save && subscription.isPremium,
         })
-
     } catch (error) {
-        res.status(500).json({ message: "Server error", error: error.message })
+        console.error("Comparison Route error:", error)
+        res.status(500).json({ message: 'Server error', error: error.message })
     }
 })
 
-// Get saved comparisons (premium only)
 router.get('/saved', verifyToken, isPro, async (req, res) => {
     try {
-        const userId = req.user.id
-        const savedComparisons = await SavedComparison.find({ userId }).sort({ createdAt: -1 })
-
+        const savedComparisons = await SavedComparison.find({ userId: req.user.id }).sort({ createdAt: -1 })
         res.json({
-            message: "Saved comparisons retrieved",
-            data: savedComparisons
+            message: 'Saved comparisons retrieved',
+            data: savedComparisons,
         })
     } catch (error) {
-        res.status(500).json({ message: "Server error", error: error.message })
+        res.status(500).json({ message: 'Server error', error: error.message })
     }
 })
 
-// Delete saved comparison
 router.delete('/saved/:id', verifyToken, isPro, async (req, res) => {
     try {
-        const userId = req.user.id
-        const comparisonId = req.params.id
-
         const deleted = await SavedComparison.findOneAndDelete({
-            _id: comparisonId,
-            userId
+            _id: req.params.id,
+            userId: req.user.id,
         })
 
         if (!deleted) {
-            return res.status(404).json({ message: "Saved comparison not found" })
+            return res.status(404).json({ message: 'Saved comparison not found' })
         }
 
-        res.json({ message: "Saved comparison deleted" })
+        res.json({ message: 'Saved comparison deleted' })
     } catch (error) {
-        res.status(500).json({ message: "Server error", error: error.message })
+        res.status(500).json({ message: 'Server error', error: error.message })
     }
 })
 

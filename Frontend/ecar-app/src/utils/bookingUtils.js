@@ -13,6 +13,12 @@ export const formatDate = (value, options = {}) =>
 export const formatDateTimeLabel = (date, time) => `${formatDate(date)}${time ? ` at ${time}` : ''}`
 export const formatDateInputValue = (value) => (value ? new Date(value).toISOString().slice(0, 10) : '')
 
+export const normalizeBookingType = (bookingType) => {
+    if (bookingType === 'home_delivery' || bookingType === 'home') return 'home'
+    if (bookingType === 'at_showroom' || bookingType === 'showroom') return 'showroom'
+    return bookingType || ''
+}
+
 export const getStatusTone = (status) => {
     const tones = {
         pending: { bg: 'rgba(245,158,11,0.14)', border: 'rgba(245,158,11,0.28)', color: '#fbbf24' },
@@ -34,6 +40,8 @@ export const statusLabels = {
 }
 
 export const bookingTypeLabels = {
+    showroom: 'Showroom drive',
+    home: 'Home drive',
     at_showroom: 'Showroom drive',
     home_delivery: 'Home drive',
 }
@@ -53,7 +61,7 @@ export const getTimelineState = (status) => {
 }
 
 export const getBookingTypeTone = (bookingType) => {
-    if (bookingType === 'home_delivery') {
+    if (normalizeBookingType(bookingType) === 'home') {
         return {
             bg: 'rgba(37,99,235,0.14)',
             border: 'rgba(96,165,250,0.28)',
@@ -69,10 +77,10 @@ export const getBookingTypeTone = (bookingType) => {
 }
 
 export const getBookingLocationTitle = (booking) =>
-    booking?.bookingType === 'home_delivery' ? 'Address' : 'Showroom'
+    normalizeBookingType(booking?.bookingType) === 'home' ? 'Address' : 'Showroom'
 
 export const getBookingLocationLabel = (booking) => {
-    if (booking?.bookingType === 'home_delivery') {
+    if (normalizeBookingType(booking?.bookingType) === 'home') {
         const parts = [booking?.userDetails?.address, booking?.userDetails?.pincode].filter(Boolean)
         return parts.join(', ') || '--'
     }

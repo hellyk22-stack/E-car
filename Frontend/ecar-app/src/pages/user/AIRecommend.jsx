@@ -2,7 +2,12 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { toast } from 'react-toastify'
 import axiosInstance from '../../utils/axiosInstance'
-import { fetchSubscriptionStatus, formatPlanName, isUnlimitedLimit } from '../../utils/subscription'
+import {
+    fetchSubscriptionStatus,
+    formatPlanName,
+    isUnlimitedLimit,
+    checkUsageWarnings,
+} from '../../utils/subscription'
 
 const initialAssistantMessage = {
     role: 'assistant',
@@ -54,13 +59,19 @@ const AIRecommend = () => {
                 setRemainingChats(status?.usage?.aiChatsLimit === 'unlimited'
                     ? 'unlimited'
                     : Math.max((status?.usage?.aiChatsLimit || 0) - (status?.usage?.aiChatsToday || 0), 0))
-                setLimitReached(status?.plan === 'explorer' && status?.usage?.aiChatsLimit !== 'unlimited' && (status?.usage?.aiChatsToday || 0) >= (status?.usage?.aiChatsLimit || 0))
+                setLimitReached(status?.usage?.aiChatsLimit !== 'unlimited' && (status?.usage?.aiChatsToday || 0) >= (status?.usage?.aiChatsLimit || 0))
 
                 if (fetchedSessions.length) {
                     await openSession(fetchedSessions[0]._id)
                 } else {
                     await createSession(true)
                 }
+
+                // Show usage warnings if any
+                const warnings = checkUsageWarnings(status.usage)
+                warnings.forEach(w => {
+                    if (w.type === 'ai') toast.info(w.message)
+                })
             } catch (error) {
                 toast.error('Unable to load AI advisor right now.')
                 setMessages([initialAssistantMessage])
@@ -160,7 +171,13 @@ const AIRecommend = () => {
                 setResetsAt(error.response?.data?.resetsAt || null)
                 setMessages((prev) => prev.slice(0, -1))
             } else {
-                toast.error(error.response?.data?.message || 'Unable to send your message right now.')
+                const errMsg = error.response?.data?.message || error.response?.data?.error || 'Unable to send your message right now.'
+                if (error.response?.data?.limitReached) {
+                    toast.warning(errMsg)
+                    setLimitReached(true)
+                } else {
+                    toast.error(errMsg)
+                }
                 setMessages((prev) => prev.slice(0, -1))
             }
         } finally {
@@ -168,7 +185,7 @@ const AIRecommend = () => {
         }
     }
 
-    const explorerCounter = subscription?.plan === 'explorer' && !isUnlimitedLimit(remainingChats)
+    const explorerCounter = !isUnlimitedLimit(remainingChats)
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-900 text-slate-100">
@@ -288,7 +305,7 @@ const AIRecommend = () => {
                                     </div>
                                 )}
                                 <div
-                                    className="max-w-[82%] rounded-2xl px-5 py-4 text-sm leading-7"
+                                    className="max-w-[82%] whitespace-pre-wrap break-words rounded-2xl px-5 py-4 text-sm leading-7"
                                     style={{
                                         background: msg.role === 'user' ? 'linear-gradient(135deg, #6366f1, #8b5cf6)' : 'rgba(255,255,255,0.05)',
                                         border: msg.role === 'user' ? 'none' : '1px solid rgba(255,255,255,0.08)',
@@ -343,3 +360,5 @@ const AIRecommend = () => {
 }
 
 export default AIRecommend
+
+

@@ -1,9 +1,10 @@
-﻿import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { toast } from 'react-toastify'
 import axiosInstance from '../../utils/axiosInstance'
 import TestDriveBookingModal from '../../components/bookings/TestDriveBookingModal'
 import CarCard from '../../components/user/CarCard'
+import { mergeShowroomInventoryWithCatalog } from '../../utils/showroomInventory'
 
 const normalizeCatalogCar = (car) => {
     if (!car || typeof car !== 'object') return null
@@ -12,39 +13,6 @@ const normalizeCatalogCar = (car) => {
         ...car,
         _id: car._id || car.id || '',
     }
-}
-
-const mergeShowroomInventory = (inventory = [], catalog = []) => {
-    const catalogMap = new Map(
-        (catalog || [])
-            .map(normalizeCatalogCar)
-            .filter((car) => car?._id)
-            .map((car) => [String(car._id), car])
-    )
-
-    return (inventory || [])
-        .map((item) => {
-            const carRef = item?.carId
-            const resolvedId = typeof carRef === 'object'
-                ? (carRef?._id || carRef?.id || '')
-                : (carRef || '')
-
-            const catalogCar = catalogMap.get(String(resolvedId))
-            const baseCar = normalizeCatalogCar(
-                typeof carRef === 'object' && carRef !== null
-                    ? carRef
-                    : catalogCar
-            )
-
-            if (!baseCar?._id) return null
-
-            return {
-                ...catalogCar,
-                ...baseCar,
-                price: item?.customPrice || baseCar.price || catalogCar?.price,
-            }
-        })
-        .filter(Boolean)
 }
 
 const BookTestDrive = () => {
@@ -80,7 +48,7 @@ const BookTestDrive = () => {
                 if (showroomId) {
                     const showroomRes = await axiosInstance.get(`/user/showrooms/${showroomId}`)
                     const showroom = showroomRes.data.data
-                    const showroomCars = mergeShowroomInventory(showroom.cars, catalogCars)
+                    const showroomCars = mergeShowroomInventoryWithCatalog(showroom, catalogCars)
                     setSelectedShowroom(showroom)
                     setShowrooms([showroom])
                     setShowroomHasInventory(showroomCars.length > 0)
@@ -88,8 +56,8 @@ const BookTestDrive = () => {
                         setMode('showroom')
                         setCars(showroomCars)
                     } else {
-                        setMode('home')
-                        setCars(catalogCars)
+                        setMode('showroom')
+                        setCars([])
                     }
                 } else {
                     setShowroomHasInventory(true)
@@ -129,7 +97,7 @@ const BookTestDrive = () => {
 
     useEffect(() => {
         if (!selectedShowroom || mode !== 'showroom') return
-        setCars(mergeShowroomInventory(selectedShowroom.cars, allCars))
+        setCars(mergeShowroomInventoryWithCatalog(selectedShowroom, allCars))
         setSelectedCar(null)
     }, [allCars, mode, selectedShowroom])
 
@@ -200,7 +168,7 @@ const BookTestDrive = () => {
                     </p>
                 </div>
 
-                <div className="grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
+                <div className="grid gap-8 lg:grid-cols-[380px_1fr] xl:grid-cols-[420px_1fr]">
                     <div className="space-y-6">
                         <div className="rounded-[28px] border border-white/10 bg-white/[0.035] p-6">
                             <p className="text-xs font-semibold uppercase tracking-[0.22em] text-sky-200">Choose Style</p>
@@ -287,9 +255,9 @@ const BookTestDrive = () => {
                     <div className="rounded-[32px] border border-white/10 bg-white/[0.035] p-6 backdrop-blur-xl">
                         {showroomId && !showroomHasInventory && (
                             <div className="mb-5 rounded-[24px] border border-amber-300/20 bg-amber-400/10 p-4">
-                                <p className="text-sm font-semibold text-amber-100">This showroom has no assigned inventory yet.</p>
+                                <p className="text-sm font-semibold text-amber-100">This showroom does not have any cars available for its registered brands yet.</p>
                                 <p className="mt-1 text-sm text-amber-50/75" style={{ fontFamily: "'DM Sans', sans-serif" }}>
-                                    Showing all available cars instead so the user can still continue with a test-drive booking.
+                                    Only the showroom&apos;s own brand cars can be booked from this page.
                                 </p>
                             </div>
                         )}
@@ -309,10 +277,10 @@ const BookTestDrive = () => {
                                 <p className="text-lg font-semibold text-white">No cars available right now</p>
                                 <p className="mt-2 text-sm text-white/55" style={{ fontFamily: "'DM Sans', sans-serif" }}>
                                     {mode === 'showroom'
-                                        ? `This showroom currently has 0 cars assigned in the database. The platform catalog still has ${allCars.length} cars, so you can switch to At Home to browse all cars.`
+                                        ? 'No cars from this showroom\'s registered brands are available right now.'
                                         : 'We could not load the car catalog right now. Please refresh and try again.'}
                                 </p>
-                                {mode === 'showroom' && allCars.length > 0 && (
+                                {mode === 'showroom' && !showroomId && allCars.length > 0 && (
                                     <button
                                         type="button"
                                         onClick={() => setMode('home')}
@@ -331,8 +299,8 @@ const BookTestDrive = () => {
                             </div>
                         ) : (
                             <div className="rounded-[28px] border border-white/10 bg-slate-950/20 p-3">
-                                <div className="booking-car-scroll max-h-[720px] overflow-y-auto pr-2">
-                                    <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+                                <div className="booking-car-scroll max-h-[760px] overflow-y-auto pr-3">
+                                    <div className="grid gap-6 md:grid-cols-2">
                                         {visibleCars.map((car) => (
                                             <CarCard key={car._id} car={car} selectable selected={selectedCar?._id === car._id} onSelect={setSelectedCar} />
                                         ))}

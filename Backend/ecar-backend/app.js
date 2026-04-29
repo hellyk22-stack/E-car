@@ -6,6 +6,7 @@ require("dotenv").config()
 const dbConnection = require("./src/utils/DBConnection")
 dbConnection()
 
+
 app.use(express.json())
 app.use(express.urlencoded({ extended: true }))
 
@@ -26,6 +27,7 @@ const analyticsRoutes = require("./src/routes/AnalyticsRoutes")
 const notificationRoutes = require("./src/routes/NotificationRoutes")
 const systemRoutes = require("./src/routes/SystemRoutes")
 const adminShowroomRoutes = require("./src/routes/AdminShowroomRoutes")
+const paymentRoutes = require("./src/routes/PaymentRoutes")
 
 app.use("/user", userRoutes)
 app.use("/user", userShowroomRoutes)
@@ -39,6 +41,7 @@ app.use("/analytics", analyticsRoutes)
 app.use("/notification", notificationRoutes)
 app.use("/system", systemRoutes)
 app.use("/admin", adminShowroomRoutes)
+app.use("/payment", paymentRoutes)
 
 app.get("/test", (req, res) => {
     res.json({ message: "E-CAR backend running!!" })

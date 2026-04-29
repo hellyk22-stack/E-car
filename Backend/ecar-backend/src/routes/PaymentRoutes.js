@@ -1,9 +1,13 @@
 const express = require('express')
+const crypto = require('crypto')
+const Razorpay = require('razorpay')
 const { verifyToken } = require('../middleware/AuthMiddleware')
 const User = require('../models/UserModel')
 const Payment = require('../models/PaymentModel')
-const Razorpay = require('razorpay')
-const crypto = require('crypto')
+const Wishlist = require('../models/WishlistModel')
+const TestDriveBooking = require('../models/TestDriveBookingModel')
+const AIChatSession = require('../models/AIChatSessionModel')
+const { PLAN_LIMITS, getActiveSubscription } = require('../utils/SubscriptionUtil')
 
 const router = express.Router()
 
@@ -18,156 +22,307 @@ let razorpay = null
 if (razorpayKeyId && razorpayKeySecret) {
     razorpay = new Razorpay({
         key_id: razorpayKeyId,
-        key_secret: razorpayKeySecret
+        key_secret: razorpayKeySecret,
     })
+    console.log('Razorpay initialized successfully')
 }
 
-// Create Razorpay order
+const PLAN_PRICING = {
+    pro_buyer: { monthly: 29900, annual: 299900 },
+    elite: { monthly: 59900, annual: 599900 },
+}
+
+const getPlanExpiry = (billingCycle) => {
+    const now = new Date()
+    if (billingCycle === 'annual') {
+        now.setFullYear(now.getFullYear() + 1)
+    } else {
+        now.setMonth(now.getMonth() + 1)
+    }
+    return now
+}
+
+const getTodayStart = () => {
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    return today
+}
+
+const getAiChatsToday = async (userId) => {
+    const todayAtMidnight = getTodayStart()
+    const sessionsWithTodayMessages = await AIChatSession.find({
+        userId,
+        updatedAt: { $gte: todayAtMidnight },
+    }).select('messages updatedAt').lean()
+
+    return sessionsWithTodayMessages.reduce((count, session) => {
+        const todayMessages = (session.messages || []).filter((message) =>
+            message.role === 'user' && new Date(message.createdAt || session.updatedAt) >= todayAtMidnight
+        )
+        return count + todayMessages.length
+    }, 0)
+}
+
+router.get('/status', verifyToken, async (req, res) => {
+    try {
+        const userId = req.user.id
+        const user = await User.findById(userId).lean()
+        if (!user) return res.status(404).json({ message: 'User not found' })
+
+        const subscription = getActiveSubscription(user)
+
+        if (subscription.isExpired && subscription.storedPlan !== 'explorer') {
+            await User.findByIdAndUpdate(userId, {
+                'subscription.plan': 'explorer',
+                'subscription.planExpiry': null,
+                'subscription.billingCycle': null,
+            })
+        }
+
+        const [wishlistCount, activeBookingsCount, aiChatsToday, savedComparisonsCount] = await Promise.all([
+            Wishlist.countDocuments({ userId }),
+            TestDriveBooking.countDocuments({
+                user: userId,
+                status: { $in: ['pending', 'confirmed'] },
+            }),
+            getAiChatsToday(userId),
+            SavedComparison.countDocuments({ userId }),
+        ])
+
+        res.json({
+            message: 'Subscription status fetched',
+            data: {
+                plan: subscription.plan,
+                planLabel: subscription.planLabel,
+                planExpiry: subscription.planExpiry,
+                billingCycle: subscription.billingCycle,
+                limits: subscription.limits,
+                usage: {
+                    wishlistCount,
+                    wishlistLimit: subscription.limits.wishlistLimit,
+                    activeBookingsCount,
+                    activeBookingsLimit: subscription.limits.activeBookingsLimit,
+                    aiChatsToday,
+                    aiChatsLimit: subscription.limits.aiChatsPerDay,
+                    savedComparisonsCount,
+                    savedComparisonsLimit: subscription.limits.smartCompareLimit,
+                },
+            },
+        })
+    } catch (error) {
+        console.error('Subscription status error:', error)
+        res.status(500).json({ message: 'Error fetching subscription status', error: error.message })
+    }
+})
+
+router.get('/plans', (req, res) => {
+    res.json({
+        message: 'Plans fetched',
+        data: [
+            {
+                id: 'pro_buyer',
+                name: 'Pro Buyer',
+                description: 'Unlock smart comparisons, AI assistant, price alerts, and priority showroom access.',
+                monthlyPrice: PLAN_PRICING.pro_buyer.monthly,
+                annualPrice: PLAN_PRICING.pro_buyer.annual,
+                limits: PLAN_LIMITS.pro_buyer,
+            },
+            {
+                id: 'elite',
+                name: 'Elite',
+                description: 'Everything unlimited. Early access to new features, PDF & Excel exports, and more.',
+                monthlyPrice: PLAN_PRICING.elite.monthly,
+                annualPrice: PLAN_PRICING.elite.annual,
+                limits: PLAN_LIMITS.elite,
+            },
+        ],
+    })
+})
+
 router.post('/create-order', verifyToken, async (req, res) => {
     try {
         const userId = req.user.id
+        const { plan, billingCycle } = req.body
 
-        // NEVER take amount from req.body for a fixed-price upgrade.
-        // Fetch from a config or DB.
-        const PREMIUM_PRICE_PAISE = 99900; 
-
-        if (!razorpayKeyId || !razorpayKeySecret) {
-            return res.status(500).json({ message: 'Razorpay configuration missing on server', error: 'Missing Razorpay keys' })
+        if (!razorpay) {
+            return res.status(500).json({ message: 'Razorpay configuration missing on server' })
         }
 
-        // Check if user is already premium
+        if (!plan || !PLAN_PRICING[plan]) {
+            return res.status(400).json({ message: 'Invalid plan selected' })
+        }
+
+        if (!['monthly', 'annual'].includes(billingCycle)) {
+            return res.status(400).json({ message: 'Invalid billing cycle' })
+        }
+
         const user = await User.findById(userId)
-        if (user.isPro) {
-            return res.status(400).json({ message: "User is already premium" })
+        if (!user) return res.status(404).json({ message: 'User not found' })
+
+        const currentSubscription = getActiveSubscription(user)
+        const isSameActivePlan = currentSubscription.plan !== 'explorer' && currentSubscription.plan === plan
+
+        if (isSameActivePlan) {
+            return res.status(400).json({ message: `You already have an active ${currentSubscription.planLabel} subscription.` })
         }
 
-        // Create Razorpay order
-        const options = {
-            amount: PREMIUM_PRICE_PAISE, 
+        const amountInPaise = PLAN_PRICING[plan][billingCycle]
+        const order = await razorpay.orders.create({
+            amount: amountInPaise,
             currency: 'INR',
-            receipt: `receipt_${userId}_${Date.now()}`,
-            payment_capture: 1
-        }
+            receipt: `rcpt_${userId.toString().slice(-8)}_${Date.now()}`,
+            payment_capture: 1,
+            notes: {
+                userId,
+                plan,
+                billingCycle,
+            },
+        })
 
-        const order = await razorpay.orders.create(options)
-
-        // Save payment record
         const payment = new Payment({
             userId,
             orderId: order.id,
-            amount: amount / 100, // Convert to rupees
-            status: 'created'
+            amount: amountInPaise / 100,
+            plan,
+            billingCycle,
+            status: 'created',
         })
         await payment.save()
 
         res.json({
-            message: "Order created successfully",
+            message: 'Order created successfully',
             orderId: order.id,
             amount: order.amount,
             currency: order.currency,
-            key: razorpayKeyId
+            key: razorpayKeyId,
+            plan,
+            billingCycle,
         })
-
     } catch (error) {
         console.error('Create order error:', error)
         const razorpayError = error?.error?.description || error?.description || error?.message || 'Unknown Razorpay error'
         res.status(500).json({
             message: razorpayError,
-            error: error?.error || error?.description || error?.message || 'Unknown Razorpay error'
+            error: error?.error || error?.description || error?.message || 'Unknown Razorpay error',
         })
     }
 })
 
-// Verify payment
 router.post('/verify-payment', verifyToken, async (req, res) => {
     try {
         const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body
         const userId = req.user.id
 
-        // Verify signature
-        const sign = razorpay_order_id + '|' + razorpay_payment_id
+        const sign = `${razorpay_order_id}|${razorpay_payment_id}`
         const expectedSign = crypto
-            .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
-            .update(sign.toString())
+            .createHmac('sha256', razorpayKeySecret)
+            .update(sign)
             .digest('hex')
 
         if (razorpay_signature !== expectedSign) {
-            return res.status(400).json({ message: "Payment verification failed" })
+            return res.status(400).json({ message: 'Payment verification failed: signature mismatch' })
         }
 
-        // Update payment record
         const payment = await Payment.findOneAndUpdate(
             { orderId: razorpay_order_id, userId },
             {
                 paymentId: razorpay_payment_id,
                 status: 'paid',
-                razorpayResponse: req.body
+                razorpayResponse: req.body,
             },
             { new: true }
         )
 
         if (!payment) {
-            return res.status(404).json({ message: "Payment record not found" })
+            return res.status(404).json({ message: 'Payment record not found' })
         }
 
-        // Upgrade user to premium
-        await User.findByIdAndUpdate(userId, { isPro: true })
-
-        res.json({
-            message: "Payment verified and user upgraded to premium",
-            success: true
+        const planExpiry = getPlanExpiry(payment.billingCycle)
+        await User.findByIdAndUpdate(userId, {
+            'subscription.plan': payment.plan,
+            'subscription.planExpiry': planExpiry,
+            'subscription.billingCycle': payment.billingCycle,
         })
 
+        res.json({
+            message: 'Payment verified and subscription activated!',
+            success: true,
+            data: {
+                plan: payment.plan,
+                billingCycle: payment.billingCycle,
+                planExpiry,
+            },
+        })
     } catch (error) {
         console.error('Verify payment error:', error)
-        res.status(500).json({ message: "Payment verification failed", error: error.message })
+        res.status(500).json({ message: 'Payment verification failed', error: error.message })
     }
 })
 
-// Webhook for additional verification (optional)
 router.post('/webhook', (req, res) => {
     try {
         const secret = process.env.RAZORPAY_WEBHOOK_SECRET
         const signature = req.headers['x-razorpay-signature']
 
-        // Verify webhook signature
-        const expectedSignature = crypto
-            .createHmac('sha256', secret)
-            .update(JSON.stringify(req.body))
-            .digest('hex')
+        if (secret && signature) {
+            const expectedSignature = crypto
+                .createHmac('sha256', secret)
+                .update(JSON.stringify(req.body))
+                .digest('hex')
 
-        if (signature !== expectedSignature) {
-            return res.status(400).json({ message: "Invalid webhook signature" })
+            if (signature !== expectedSignature) {
+                return res.status(400).json({ message: 'Invalid webhook signature' })
+            }
         }
 
-        // Handle webhook events
-        const event = req.body.event
-        if (event === 'payment.captured') {
+        if (req.body.event === 'payment.captured') {
             const paymentEntity = req.body.payload.payment.entity
-            // Additional processing if needed
-            console.log('Payment captured:', paymentEntity.id)
+            console.log('Payment captured via webhook:', paymentEntity.id)
         }
 
         res.json({ status: 'ok' })
-
     } catch (error) {
         console.error('Webhook error:', error)
-        res.status(500).json({ message: "Webhook processing failed" })
+        res.status(500).json({ message: 'Webhook processing failed' })
     }
 })
 
-// Get user payment history
-router.get('/history', verifyToken, async (req, res) => {
+router.post('/cancel', verifyToken, async (req, res) => {
     try {
         const userId = req.user.id
-        const payments = await Payment.find({ userId }).sort({ createdAt: -1 })
+        const user = await User.findById(userId)
+        if (!user) return res.status(404).json({ message: 'User not found' })
+
+        const subscription = getActiveSubscription(user)
+        if (subscription.plan === 'explorer') {
+            return res.status(400).json({ message: 'You are already on the free Explorer plan.' })
+        }
+
+        await User.findByIdAndUpdate(userId, {
+            'subscription.plan': 'explorer',
+            'subscription.planExpiry': null,
+            'subscription.billingCycle': null,
+        })
 
         res.json({
-            message: "Payment history retrieved",
-            data: payments
+            message: 'Subscription cancelled. You have been moved to the Explorer plan.',
+            success: true,
         })
     } catch (error) {
-        res.status(500).json({ message: "Server error", error: error.message })
+        console.error('Cancel subscription error:', error)
+        res.status(500).json({ message: 'Error cancelling subscription', error: error.message })
+    }
+})
+
+router.get('/history', verifyToken, async (req, res) => {
+    try {
+        const payments = await Payment.find({ userId: req.user.id }).sort({ createdAt: -1 }).lean()
+        res.json({
+            message: 'Payment history retrieved',
+            data: payments,
+        })
+    } catch (error) {
+        res.status(500).json({ message: 'Server error', error: error.message })
     }
 })
 

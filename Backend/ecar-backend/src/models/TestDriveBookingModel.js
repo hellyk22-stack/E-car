@@ -115,4 +115,6 @@ const testDriveBookingSchema = new Schema({
     },
 }, { timestamps: true })
 
+testDriveBookingSchema.index({ car: 1, scheduledDate: 1, scheduledTime: 1 }, { unique: true })
+
 module.exports = mongoose.model("test_drive_bookings", testDriveBookingSchema)

@@ -3,10 +3,12 @@ import { toast } from 'react-toastify'
 import axiosInstance from '../../utils/axiosInstance'
 import { getCarImage } from '../../utils/carImageUtils'
 import { formatCurrency } from '../../utils/bookingUtils'
+import { normalizeBrandName } from '../../utils/showroomInventory'
 
 const ShowroomCars = () => {
     const [inventory, setInventory] = useState([])
     const [allCars, setAllCars] = useState([])
+    const [allowedBrands, setAllowedBrands] = useState([])
     const [showModal, setShowModal] = useState(false)
     const [selectedCarId, setSelectedCarId] = useState('')
     const [customPrice, setCustomPrice] = useState('')
@@ -16,12 +18,14 @@ const ShowroomCars = () => {
     const loadData = async () => {
         setLoading(true)
         try {
-            const [inventoryRes, carsRes] = await Promise.all([
+            const [inventoryRes, carsRes, profileRes] = await Promise.all([
                 axiosInstance.get('/showroom/cars'),
                 axiosInstance.get('/car/cars'),
+                axiosInstance.get('/showroom/profile'),
             ])
             setInventory(inventoryRes.data.data || [])
             setAllCars(carsRes.data.data || [])
+            setAllowedBrands(profileRes.data.data?.brands || [])
         } catch (error) {
             toast.error('Unable to load showroom inventory')
         } finally {
@@ -33,7 +37,12 @@ const ShowroomCars = () => {
         loadData()
     }, [])
 
-    const availableCars = allCars.filter((car) => !inventory.some((item) => item.carId?._id === car._id || item.carId === car._id))
+    const allowedBrandSet = new Set((allowedBrands || []).map(normalizeBrandName))
+    const availableCars = allCars.filter((car) => {
+        const isAlreadyAdded = inventory.some((item) => item.carId?._id === car._id || item.carId === car._id)
+        const isAllowedBrand = !allowedBrandSet.size || allowedBrandSet.has(normalizeBrandName(car?.brand))
+        return !isAlreadyAdded && isAllowedBrand
+    })
 
     const addCar = async () => {
         if (!selectedCarId) {

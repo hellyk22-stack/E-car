@@ -58,26 +58,29 @@ const StatusTimeline = ({ booking }) => {
                 )}
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="grid gap-4 sm:grid-cols-2">
                 {timelineSteps.map((step) => {
                     const complete = stepComplete(step.key)
                     const isFailedTail = state === 'failed' && !complete
                     return (
                         <div
                             key={step.key}
-                            className="rounded-2xl p-4 md:p-5"
+                            className="flex flex-col rounded-2xl p-4"
                             style={{
                                 background: complete ? 'rgba(99,102,241,0.12)' : isFailedTail ? 'rgba(239,68,68,0.08)' : 'rgba(255,255,255,0.02)',
                                 border: `1px solid ${complete ? 'rgba(99,102,241,0.24)' : isFailedTail ? 'rgba(239,68,68,0.22)' : 'rgba(255,255,255,0.08)'}`,
+                                minHeight: '160px'
                             }}
                         >
-                            <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-full text-sm font-bold text-white" style={{ background: complete ? 'linear-gradient(135deg, #6366f1, #8b5cf6)' : 'rgba(255,255,255,0.08)' }}>
+                            <div className="mb-3 flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-bold text-white" style={{ background: complete ? 'linear-gradient(135deg, #6366f1, #8b5cf6)' : 'rgba(255,255,255,0.08)' }}>
                                 {step.icon}
                             </div>
-                            <p className="text-base font-semibold leading-8 text-white md:text-lg">{step.label}</p>
-                            <p className="mt-2 text-sm leading-6" style={{ color: 'rgba(255,255,255,0.5)', fontFamily: "'DM Sans', sans-serif" }}>
-                                {stepLabel(step.key)}
-                            </p>
+                            <div className="flex flex-1 flex-col justify-between">
+                                <p className="text-sm font-bold leading-tight text-white md:text-base lg:text-sm xl:text-base">{step.label}</p>
+                                <p className="mt-2 text-xs leading-relaxed" style={{ color: 'rgba(255,255,255,0.5)', fontFamily: "'DM Sans', sans-serif" }}>
+                                    {stepLabel(step.key)}
+                                </p>
+                            </div>
                         </div>
                     )
                 })}

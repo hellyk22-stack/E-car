@@ -1,7 +1,8 @@
-import React, { useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'react-toastify'
 import axiosInstance from '../../utils/axiosInstance'
+import LocationPickerModal from '../../components/showroom/LocationPickerModal'
 
 const ShowroomRegister = () => {
     const navigate = useNavigate()
@@ -21,9 +22,17 @@ const ShowroomRegister = () => {
         availableDays: 'Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday',
         openingOpen: '10:00 AM',
         openingClose: '07:00 PM',
+        lat: '',
+        lng: '',
     })
     const [logo, setLogo] = useState(null)
     const [submitting, setSubmitting] = useState(false)
+    const [locationPickerOpen, setLocationPickerOpen] = useState(false)
+
+    const addressHint = useMemo(
+        () => [form.street, form.city, form.state, form.pincode].filter(Boolean).join(', '),
+        [form.city, form.pincode, form.state, form.street],
+    )
 
     const submit = async (event) => {
         event.preventDefault()
@@ -77,6 +86,8 @@ const ShowroomRegister = () => {
                         ['servicePincodes', 'Service pincodes'],
                         ['openingOpen', 'Open'],
                         ['openingClose', 'Close'],
+                        ['lat', 'Latitude', 'number'],
+                        ['lng', 'Longitude', 'number'],
                     ].map(([key, label, type]) => (
                         <div key={key}>
                             <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.18em]" style={{ color: 'rgba(255,255,255,0.45)' }}>{label}</label>
@@ -88,6 +99,37 @@ const ShowroomRegister = () => {
                             />
                         </div>
                     ))}
+                    <div className="md:col-span-2">
+                        <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
+                            <label className="block text-xs font-semibold uppercase tracking-[0.18em]" style={{ color: 'rgba(255,255,255,0.45)' }}>Showroom coordinates</label>
+                            <button
+                                type="button"
+                                onClick={() => setLocationPickerOpen(true)}
+                                className="rounded-2xl border border-sky-300/20 bg-sky-400/10 px-4 py-2 text-sm font-semibold text-sky-100"
+                            >
+                                Pick location from map
+                            </button>
+                        </div>
+                        <div className="grid gap-4 md:grid-cols-2">
+                            {[
+                                ['lat', 'Latitude', 'number'],
+                                ['lng', 'Longitude', 'number'],
+                            ].map(([key, label, type]) => (
+                                <div key={key}>
+                                    <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.18em]" style={{ color: 'rgba(255,255,255,0.45)' }}>{label}</label>
+                                    <input
+                                        type={type}
+                                        value={form[key]}
+                                        onChange={(event) => setForm((prev) => ({ ...prev, [key]: event.target.value }))}
+                                        className="w-full rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 text-white outline-none"
+                                    />
+                                </div>
+                            ))}
+                        </div>
+                        <p className="mt-3 text-sm text-white/45" style={{ fontFamily: "'DM Sans', sans-serif" }}>
+                            Use the map picker to drop a pin instead of typing coordinates manually.
+                        </p>
+                    </div>
                     <div className="md:col-span-2">
                         <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.18em]" style={{ color: 'rgba(255,255,255,0.45)' }}>Available days</label>
                         <input value={form.availableDays} onChange={(event) => setForm((prev) => ({ ...prev, availableDays: event.target.value }))} className="w-full rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 text-white outline-none" />
@@ -110,6 +152,14 @@ const ShowroomRegister = () => {
                     </div>
                 </form>
             </div>
+            <LocationPickerModal
+                open={locationPickerOpen}
+                onClose={() => setLocationPickerOpen(false)}
+                onSelect={({ lat, lng }) => setForm((prev) => ({ ...prev, lat, lng }))}
+                initialLocation={{ lat: form.lat, lng: form.lng }}
+                addressHint={addressHint}
+                title="Pick your showroom location"
+            />
         </div>
     )
 }

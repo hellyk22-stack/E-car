@@ -1,4 +1,5 @@
 const User = require("../models/UserModel")
+const { getActiveSubscription } = require("../utils/SubscriptionUtil")
 
 const isPro = async (req, res, next) => {
     try {
@@ -6,7 +7,8 @@ const isPro = async (req, res, next) => {
         if (!user) {
             return res.status(404).json({ message: "User not found" })
         }
-        if (!user.isPro) {
+        const subscription = getActiveSubscription(user)
+        if (!subscription.isPremium) {
             return res.status(403).json({ message: "Premium feature. Please upgrade to access this feature." })
         }
         next()

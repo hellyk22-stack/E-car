@@ -17,6 +17,7 @@ const {
     createBookingStatusNotification,
     createAdminBookingNotification,
 } = require("../utils/BookingNotificationUtil")
+const { getActiveSubscription, isUnlimited } = require("../utils/SubscriptionUtil")
 
 const canUploadToCloudinary = () => (
     process.env.CLOUDINARY_CLOUD_NAME &&
@@ -104,16 +105,28 @@ const listShowrooms = async (req, res, nearbyOnly = false) => {
         const resolvedPincode = pincode || (/^\d{4,6}$/.test(area) ? area : "")
 
         if (resolvedCity) {
-            filter["address.city"] = new RegExp(escapeRegex(resolvedCity), "i")
+            filter.$or = [
+                { "address.city": new RegExp(escapeRegex(resolvedCity), "i") },
+                { name: new RegExp(escapeRegex(resolvedCity), "i") }
+            ]
         }
         if (nearbyOnly && resolvedPincode) {
             filter.servicePincodes = resolvedPincode
         }
 
-        const showrooms = await Showroom.find(filter)
+        let showrooms = await Showroom.find(filter)
             .populate("cars.carId")
             .sort({ createdAt: -1, _id: -1 })
             .lean()
+
+        // Fallback: If city/pincode filter results in 0, show all approved showrooms for that brand
+        if (showrooms.length === 0 && (resolvedCity || resolvedPincode) && brand) {
+            const fallbackFilter = { status: "approved" }
+            showrooms = await Showroom.find(fallbackFilter)
+                .populate("cars.carId")
+                .sort({ createdAt: -1, _id: -1 })
+                .lean()
+        }
 
         const ranked = applyShowroomRanking(showrooms.map(serializeShowroom), {
             brand,
@@ -243,6 +256,23 @@ const createBooking = async (req, res) => {
             return res.status(404).json({ message: "User not found" })
         }
 
+        const subscription = getActiveSubscription(user)
+        const bookingLimit = subscription.limits.activeBookingsLimit
+        if (!isUnlimited(bookingLimit)) {
+            const activeBookingsCount = await TestDriveBooking.countDocuments({
+                user: user._id,
+                status: { $in: ["pending", "confirmed"] },
+            })
+
+            if (activeBookingsCount >= bookingLimit) {
+                return res.status(403).json({
+                    message: `Your ${subscription.planLabel} plan allows up to ${bookingLimit} active test drive booking${bookingLimit === 1 ? "" : "s"}.`,
+                    limitReached: true,
+                    activeBookingsLimit: bookingLimit,
+                })
+            }
+        }
+
         const car = await Car.findById(resolvedCarId)
         if (!car) {
             return res.status(404).json({ message: "Car not found" })
@@ -268,8 +298,11 @@ const createBooking = async (req, res) => {
         if (!showroomIsActive(showroom)) {
             return res.status(400).json({ message: "Selected showroom is unavailable" })
         }
-        if (!(showroom.cars || []).some((item) => String(item.carId?._id || item.carId) === String(car._id))) {
-            return res.status(400).json({ message: "Selected car is not available at this showroom" })
+        const hasCarInInventory = (showroom.cars || []).some((item) => String(item.carId?._id || item.carId) === String(car._id))
+        const supportsBrand = matchesShowroomBrand(showroom, car.brand)
+
+        if (!hasCarInInventory && !supportsBrand) {
+            return res.status(400).json({ message: "Selected car brand is not supported by this showroom" })
         }
         if (!resolvedDate || !resolvedTime) {
             return res.status(400).json({ message: "Preferred date and time are required" })
@@ -353,6 +386,9 @@ const createBooking = async (req, res) => {
 
         return res.status(201).json({ message: "Booking request submitted", data: booking })
     } catch (err) {
+        if (err.code === 11000) {
+            return res.status(409).json({ message: "This time slot is already reserved for the selected car. Please try another slot or date." })
+        }
         return res.status(500).json({ message: "Error while creating booking", err: err.message || err })
     }
 }
@@ -360,12 +396,40 @@ const createBooking = async (req, res) => {
 router.post("/bookings", verifyToken, createBooking)
 router.post("/test-drives", verifyToken, createBooking)
 
+router.get("/bookings/taken-slots", verifyToken, async (req, res) => {
+    try {
+        const { carId, date } = req.query
+        if (!carId || !date) {
+            return res.status(400).json({ message: "carId and date are required" })
+        }
+
+        const scheduledDate = normalizeDateOnly(date)
+        const bookings = await TestDriveBooking.find({
+            car: carId,
+            scheduledDate,
+            status: { $ne: "cancelled" }
+        }, "scheduledTime")
+
+        const takenSlots = bookings.map(b => b.scheduledTime)
+        return res.json({ message: "Taken slots fetched", data: takenSlots })
+    } catch (err) {
+        return res.status(500).json({ message: "Error while fetching taken slots", err })
+    }
+})
+
 router.get("/bookings", verifyToken, async (req, res) => {
     try {
         const page = Math.max(Number(req.query.page || 1), 1)
         const limit = Math.min(Math.max(Number(req.query.limit || 10), 1), 100)
         const filter = { user: req.user.id }
-        if (req.query.status) filter.status = req.query.status
+        if (req.query.status) {
+            const statuses = String(req.query.status)
+                .split(',')
+                .map((item) => item.trim())
+                .filter(Boolean)
+
+            filter.status = statuses.length > 1 ? { $in: statuses } : statuses[0]
+        }
 
         const [total, bookings] = await Promise.all([
             TestDriveBooking.countDocuments(filter),
@@ -458,6 +522,33 @@ router.post("/bookings/:bookingId/cancel", verifyToken, async (req, res) => {
         return res.json({ message: "Booking cancelled", data: booking })
     } catch (err) {
         return res.status(500).json({ message: "Error while cancelling booking", err })
+    }
+})
+
+router.delete("/bookings/:bookingId", verifyToken, async (req, res) => {
+    try {
+        const booking = await TestDriveBooking.findOne({
+            _id: req.params.bookingId,
+            user: req.user.id,
+        })
+
+        if (!booking) {
+            return res.status(404).json({ message: "Booking not found" })
+        }
+        
+        booking.status = "cancelled"
+        booking.statusHistory.push({
+            status: "cancelled",
+            updatedBy: "User",
+            updatedByRole: "user",
+            note: "Cancelled via DELETE request",
+        })
+        await booking.save()
+        await releaseSlot({ showroomId: booking.showroom, date: booking.scheduledDate, time: booking.scheduledTime })
+        
+        return res.json({ message: "Booking deleted/cancelled successfully" })
+    } catch (err) {
+        return res.status(500).json({ message: "Error while deleting booking", err })
     }
 })
 

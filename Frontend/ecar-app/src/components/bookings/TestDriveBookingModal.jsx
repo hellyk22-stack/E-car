@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { toast } from 'react-toastify'
 import axiosInstance from '../../utils/axiosInstance'
 import { getName, getUserId } from '../../utils/auth'
+import { fetchSubscriptionStatus, isUnlimitedLimit } from '../../utils/subscription'
 import { generateSlotTimes } from '../../utils/timeUtils'
 
 const bookingOptions = [
@@ -22,6 +23,16 @@ const bookingOptions = [
         description: 'Pick the best nearby showroom for this brand and lock a clean one-hour slot.',
     },
 ]
+
+const activeBookingStatuses = ['pending', 'confirmed']
+const activeBookingStatusParam = activeBookingStatuses.join(',')
+
+const normalizeTakenSlots = (items = []) => items
+    .map((item) => {
+        if (typeof item === 'string') return item
+        return item?.slot || item?.time || item?.scheduledTime || ''
+    })
+    .filter(Boolean)
 
 const initialForm = {
     bookingType: 'showroom',
@@ -100,6 +111,11 @@ const TestDriveBookingModal = ({
     const [loadingShowrooms, setLoadingShowrooms] = useState(false)
     const [loadingSlots, setLoadingSlots] = useState(false)
     const [submitting, setSubmitting] = useState(false)
+    const [takenSlots, setTakenSlots] = useState([])
+    const [activeBooking, setActiveBooking] = useState(null)
+    const [activeBookingsCount, setActiveBookingsCount] = useState(0)
+    const [checkingActiveBooking, setCheckingActiveBooking] = useState(false)
+    const [subLimit, setSubLimit] = useState(1) // Default to Explorer
     const deferredLocationHint = useDeferredValue(form.locationHint)
 
     useEffect(() => {
@@ -110,6 +126,55 @@ const TestDriveBookingModal = ({
 
         return () => {
             document.body.style.overflow = previousOverflow
+        }
+    }, [open])
+
+    useEffect(() => {
+        if (!open) {
+            setActiveBooking(null)
+            setCheckingActiveBooking(false)
+            setActiveBookingsCount(0)
+            return
+        }
+
+        let ignore = false
+
+        const loadActiveState = async () => {
+            setCheckingActiveBooking(true)
+
+            try {
+                const [status, bookingsRes] = await Promise.all([
+                    fetchSubscriptionStatus(),
+                    axiosInstance.get(`/user/bookings?status=${activeBookingStatusParam}&limit=50`)
+                ])
+
+                if (ignore) return
+
+                const bookings = (bookingsRes.data.data || []).filter((booking) => (
+                    activeBookingStatuses.includes(String(booking?.status || '').toLowerCase())
+                ))
+                const limit = isUnlimitedLimit(status?.limits?.activeBookingsLimit) ? Infinity : (status?.limits?.activeBookingsLimit || 1)
+                
+                setActiveBookingsCount(bookings.length)
+                setSubLimit(limit)
+                setActiveBooking(bookings[0] || null)
+            } catch {
+                if (!ignore) {
+                    setActiveBooking(null)
+                    setActiveBookingsCount(0)
+                    setSubLimit(1)
+                }
+            } finally {
+                if (!ignore) {
+                    setCheckingActiveBooking(false)
+                }
+            }
+        }
+
+        loadActiveState()
+
+        return () => {
+            ignore = true
         }
     }, [open])
 
@@ -145,7 +210,7 @@ const TestDriveBookingModal = ({
     }, [initialBookingType, initialLocationHint, initialShowroomId, open, profileDefaults])
 
     useEffect(() => {
-        if (!open || !car?._id) return
+        if (!open || !car?._id || activeBookingsCount >= subLimit) return
 
         let ignore = false
 
@@ -187,11 +252,12 @@ const TestDriveBookingModal = ({
         return () => {
             ignore = true
         }
-    }, [car, deferredLocationHint, form.bookingType, form.pincode, form.showroomId, open])
+    }, [activeBookingsCount, subLimit, car, deferredLocationHint, form.bookingType, form.pincode, form.showroomId, open])
 
     useEffect(() => {
-        if (!open || form.bookingType !== 'showroom' || !form.showroomId || !form.scheduledDate) {
+        if (!open || !car?._id || !form.scheduledDate || activeBookingsCount >= subLimit) {
             setSlots([])
+            setTakenSlots([])
             return
         }
 
@@ -200,14 +266,23 @@ const TestDriveBookingModal = ({
         const loadSlots = async () => {
             setLoadingSlots(true)
             try {
-                const res = await axiosInstance.get(`/user/showrooms/${form.showroomId}/availability?date=${form.scheduledDate}`)
+                // Fetch showroom general availability and specific car booked slots in parallel
+                const [availabilityRes, takenRes] = await Promise.all([
+                    form.showroomId 
+                        ? axiosInstance.get(`/user/showrooms/${form.showroomId}/availability?date=${form.scheduledDate}`)
+                        : Promise.resolve({ data: { data: [] } }),
+                    axiosInstance.get(`/user/bookings/taken-slots?carId=${car._id}&date=${form.scheduledDate}`)
+                ])
+
                 if (!ignore) {
-                    setSlots(res.data.data || [])
+                    setSlots(availabilityRes.data.data || [])
+                    setTakenSlots(normalizeTakenSlots(takenRes.data.data || []))
                 }
             } catch {
                 if (!ignore) {
                     toast.error('Unable to load showroom slots right now.')
                     setSlots([])
+                    setTakenSlots([])
                 }
             } finally {
                 if (!ignore) {
@@ -221,7 +296,7 @@ const TestDriveBookingModal = ({
         return () => {
             ignore = true
         }
-    }, [form.bookingType, form.scheduledDate, form.showroomId, open])
+    }, [activeBookingsCount, subLimit, car?._id, form.scheduledDate, form.showroomId, open])
 
     const selectedShowroom = useMemo(
         () => showrooms.find((item) => item._id === form.showroomId) || null,
@@ -231,6 +306,15 @@ const TestDriveBookingModal = ({
     const availableTimeOptions = form.bookingType === 'showroom'
         ? slots.map((slot) => slot.time)
         : generateSlotTimes(selectedShowroom?.openingHours?.open, selectedShowroom?.openingHours?.close)
+
+    useEffect(() => {
+        if (!form.scheduledTime) return
+
+        const slotStillAvailable = availableTimeOptions.includes(form.scheduledTime) && !takenSlots.includes(form.scheduledTime)
+        if (!slotStillAvailable) {
+            setForm((prev) => ({ ...prev, scheduledTime: '' }))
+        }
+    }, [availableTimeOptions, form.scheduledTime, takenSlots])
 
     const handleClose = () => {
         if (submitting) return
@@ -242,6 +326,11 @@ const TestDriveBookingModal = ({
     }
 
     const validate = () => {
+        if (activeBookingsCount >= subLimit) {
+            toast.warning(`Limit reached: You can only have ${subLimit} active test drive booking${subLimit === 1 ? '' : 's'} at a time.`)
+            return false
+        }
+
         if (form.bookingType === 'showroom' && !form.showroomId) {
             toast.info('Pick a showroom to continue.')
             return false
@@ -340,9 +429,14 @@ const TestDriveBookingModal = ({
                                     <div>
                                         <p className="text-xs font-semibold uppercase tracking-[0.24em]" style={{ color: '#93c5fd' }}>Book Test Drive</p>
                                         <h2 className="mt-2 text-3xl font-black text-white">{car?.name}</h2>
-                                        <p className="mt-2 max-w-xl text-sm leading-6 text-white/55" style={{ fontFamily: "'DM Sans', sans-serif" }}>
-                                            Choose a concierge-style home drive or reserve a showroom slot with a verified partner for the same brand.
-                                        </p>
+                                        <div className="mt-2 flex items-center gap-2">
+                                            <span className="rounded-full bg-blue-500/10 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-blue-300" style={{ border: '1px solid rgba(59,130,246,0.2)' }}>
+                                                Usage: {activeBookingsCount} / {subLimit === Infinity ? 'Unlimited' : subLimit} slots
+                                            </span>
+                                            <p className="text-xs text-white/45" style={{ fontFamily: "'DM Sans', sans-serif" }}>
+                                                {activeBookingsCount >= subLimit ? 'Limit reached' : activeBooking ? 'Existing booking found' : 'Available slots'}
+                                            </p>
+                                        </div>
                                     </div>
                                     <button
                                         type="button"
@@ -386,6 +480,22 @@ const TestDriveBookingModal = ({
                                 </div>
 
                                 <form className="mt-6 space-y-5" onSubmit={handleSubmit}>
+                                    {(checkingActiveBooking || activeBookingsCount >= subLimit) && (
+                                        <div
+                                            className="rounded-[24px] px-4 py-4 text-sm"
+                                            style={{
+                                                background: activeBookingsCount >= subLimit ? 'rgba(239, 68, 68, 0.12)' : 'rgba(255,255,255,0.05)',
+                                                border: `1px solid ${activeBookingsCount >= subLimit ? 'rgba(239, 68, 68, 0.24)' : 'rgba(255,255,255,0.08)'}`,
+                                                color: activeBookingsCount >= subLimit ? '#fca5a5' : 'rgba(255,255,255,0.7)',
+                                                fontFamily: "'DM Sans', sans-serif",
+                                            }}
+                                        >
+                                            {checkingActiveBooking
+                                                ? 'Checking your booking status...'
+                                                : `Limit reached: You have ${activeBookingsCount} active booking${activeBookingsCount === 1 ? '' : 's'}. Please complete or cancel one before booking another.`}
+                                        </div>
+                                    )}
+
                                     <div className="grid gap-4 md:grid-cols-2">
                                         <div>
                                             <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-white/45">City or Pincode</label>
@@ -458,19 +568,24 @@ const TestDriveBookingModal = ({
                                             <div className="flex flex-wrap gap-3">
                                                 {availableTimeOptions.map((slot) => {
                                                     const active = form.scheduledTime === slot
+                                                    const isTaken = takenSlots.includes(slot)
                                                     return (
                                                         <button
                                                             key={slot}
                                                             type="button"
+                                                            disabled={isTaken}
                                                             onClick={() => updateField('scheduledTime', slot)}
-                                                            className="rounded-full px-4 py-2 text-sm font-semibold"
+                                                            className="rounded-full px-4 py-2 text-sm font-semibold transition-all"
                                                             style={{
-                                                                background: active ? 'rgba(56,189,248,0.18)' : 'rgba(255,255,255,0.05)',
-                                                                color: active ? '#e0f2fe' : 'white',
-                                                                border: `1px solid ${active ? 'rgba(125,211,252,0.4)' : 'rgba(255,255,255,0.08)'}`,
+                                                                background: isTaken ? 'rgba(255,255,255,0.02)' : (active ? 'rgba(56,189,248,0.18)' : 'rgba(255,255,255,0.05)'),
+                                                                color: isTaken ? 'rgba(255,255,255,0.2)' : (active ? '#e0f2fe' : 'white'),
+                                                                border: `1px solid ${isTaken ? 'rgba(255,255,255,0.05)' : (active ? 'rgba(125,211,252,0.4)' : 'rgba(255,255,255,0.08)')}`,
+                                                                cursor: isTaken ? 'not-allowed' : 'pointer',
+                                                                textDecoration: isTaken ? 'line-through' : 'none'
                                                             }}
                                                         >
                                                             {slot}
+                                                            {isTaken && <span className="ml-2 text-[10px] opacity-60">(Booked)</span>}
                                                         </button>
                                                     )
                                                 })}
@@ -506,14 +621,16 @@ const TestDriveBookingModal = ({
                                     </div>
 
                                     <div className="flex flex-wrap gap-3 pt-2">
-                                        <button
-                                            type="submit"
-                                            disabled={submitting}
-                                            className="rounded-2xl px-6 py-3 text-sm font-semibold text-white disabled:opacity-50"
-                                            style={{ background: 'linear-gradient(135deg, #38bdf8, #2563eb)' }}
-                                        >
-                                            {submitting ? 'Sending request...' : 'Reserve Test Drive'}
-                                        </button>
+                                        {activeBookingsCount < subLimit && (
+                                            <button
+                                                type="submit"
+                                                disabled={submitting || checkingActiveBooking}
+                                                className="rounded-2xl px-6 py-3 text-sm font-semibold text-white disabled:opacity-50"
+                                                style={{ background: 'linear-gradient(135deg, #38bdf8, #2563eb)' }}
+                                            >
+                                                {checkingActiveBooking ? 'Checking booking limit...' : submitting ? 'Sending request...' : 'Reserve Test Drive'}
+                                            </button>
+                                        )}
                                         <button
                                             type="button"
                                             onClick={handleClose}
@@ -583,3 +700,4 @@ const TestDriveBookingModal = ({
 }
 
 export default TestDriveBookingModal
+

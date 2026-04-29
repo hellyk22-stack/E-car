@@ -11,14 +11,22 @@ const pickBy = (cars, selector, direction = 'max') => {
     if (!Array.isArray(cars) || !cars.length) return null
 
     return cars.reduce((best, car) => {
+        if (!car) return best
         if (!best) return car
 
-        const currentValue = selector(car)
-        const bestValue = selector(best)
+        try {
+            const currentValue = selector(car)
+            const bestValue = selector(best)
 
-        return direction === 'min'
-            ? currentValue < bestValue ? car : best
-            : currentValue > bestValue ? car : best
+            if (typeof currentValue === 'undefined' || currentValue === null) return best
+            if (typeof bestValue === 'undefined' || bestValue === null) return car
+
+            return direction === 'min'
+                ? currentValue < bestValue ? car : best
+                : currentValue > bestValue ? car : best
+        } catch (e) {
+            return best
+        }
     }, null)
 }
 
@@ -59,8 +67,8 @@ const buildFallbackComparisonAnalysis = (cars = []) => {
         } : null,
         safest ? {
             type: 'safety',
-            carId: safest._id || safest.id,
-            carName: safest.name,
+            carId: safest?._id || safest?.id,
+            carName: safest?.name,
             text: `Top safety score in this set at ${resolveSafetyRating(safest)}/5.`,
         } : null,
         bestReviewed ? {

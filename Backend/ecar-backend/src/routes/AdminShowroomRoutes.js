@@ -319,6 +319,7 @@ const createOrApproveShowroom = async (req, res) => {
                 state: String(state || "").trim(),
                 pincode: String(pincode || "").trim(),
             },
+            brands: splitList(brands),
             serviceRadius: Number(serviceRadius || 0),
             servicePincodes: splitList(servicePincodes || pincode),
             availableDays: splitList(availableDays),

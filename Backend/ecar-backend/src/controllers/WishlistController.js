@@ -1,4 +1,6 @@
 const WishlistModel = require("../models/WishlistModel")
+const User = require("../models/UserModel")
+const { getActiveSubscription, isUnlimited } = require("../utils/SubscriptionUtil")
 
 const getMyWishlist = async (req, res) => {
     try {
@@ -40,9 +42,27 @@ const checkWishlistStatus = async (req, res) => {
 
 const addToWishlist = async (req, res) => {
     try {
+        const user = await User.findById(req.user.id)
+        if (!user) {
+            return res.status(404).json({ message: "User not found" })
+        }
+
         const existing = await WishlistModel.findOne({ userId: req.user.id, carId: req.params.carId })
         if (existing) {
             return res.json({ message: "Car already in wishlist", data: existing })
+        }
+
+        const subscription = getActiveSubscription(user)
+        const wishlistLimit = subscription.limits.wishlistLimit
+        if (!isUnlimited(wishlistLimit)) {
+            const currentCount = await WishlistModel.countDocuments({ userId: req.user.id })
+            if (currentCount >= wishlistLimit) {
+                return res.status(403).json({
+                    message: `Your ${subscription.planLabel} plan allows up to ${wishlistLimit} saved cars in wishlist.`,
+                    limitReached: true,
+                    wishlistLimit,
+                })
+            }
         }
 
         const saved = await WishlistModel.create({ userId: req.user.id, carId: req.params.carId })

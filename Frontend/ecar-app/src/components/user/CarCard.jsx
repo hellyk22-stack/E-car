@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { toast } from 'react-toastify'
 import { getCarImage } from '../../utils/carImageUtils'
 import { addCarToWishlist, removeCarFromWishlist } from '../../utils/wishlistApi'
+import { fetchSubscriptionStatus, checkUsageWarnings } from '../../utils/subscription'
 
 const fuelColor = { Petrol: '#f59e0b', Diesel: '#3b82f6', Electric: '#10b981' }
 
@@ -32,10 +33,21 @@ const CarCard = ({ car, selectable, selected, onSelect, wishlisted, onToggleWish
             } else {
                 await addCarToWishlist(car._id)
                 setInWishlist(true)
+                
+                // Show proximity warnings after adding
+                const status = await fetchSubscriptionStatus()
+                const warnings = checkUsageWarnings(status.usage)
+                warnings.forEach(w => {
+                    if (w.type === 'wishlist') toast.info(w.message)
+                })
             }
         } catch (err) {
             console.error('Failed to update wishlist', err)
-            toast.error(err.response?.data?.message || 'Unable to update wishlist right now.')
+            if (err.response?.data?.limitReached) {
+                toast.warning(err.response?.data?.message || 'Your wishlist limit is full for this plan.')
+            } else {
+                toast.error(err.response?.data?.message || 'Unable to update wishlist right now.')
+            }
         }
     }
 
@@ -149,26 +161,23 @@ const CarCard = ({ car, selectable, selected, onSelect, wishlisted, onToggleWish
                             { label: 'Engine', value: car.engine ? `${car.engine}cc` : '--' },
                             { label: 'Seats', value: car.seating ? `${car.seating}` : '--' },
                         ].map((spec, i) => (
-                            <div key={i} className="rounded-xl p-2 text-center" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
-                                <p className="mb-0.5 text-xs" style={{ color: 'rgba(255,255,255,0.35)', fontFamily: "'DM Sans', sans-serif" }}>{spec.label}</p>
-                                <p className="text-xs font-semibold text-white" style={{ fontFamily: "'DM Sans', sans-serif" }}>{spec.value}</p>
+                            <div key={i} className="rounded-xl py-2 px-1 text-center" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                                <p className="mb-0.5 text-[10px] uppercase tracking-wider" style={{ color: 'rgba(255,255,255,0.35)', fontFamily: "'DM Sans', sans-serif" }}>{spec.label}</p>
+                                <p className="text-[11px] font-bold text-white" style={{ fontFamily: "'DM Sans', sans-serif" }}>{spec.value}</p>
                             </div>
                         ))}
                     </div>
 
                     <div className="flex items-center justify-between gap-3">
-                        <div>
-                            <p className="mb-0.5 text-xs" style={{ color: 'rgba(255,255,255,0.3)', fontFamily: "'DM Sans', sans-serif" }}>Price</p>
-                            <p className="text-lg font-bold" style={{ color: '#818cf8', fontFamily: "'Syne', sans-serif", letterSpacing: '-0.02em' }}>
+                        <div className="flex-1 min-w-0">
+                            <p className="mb-0.5 text-[10px] uppercase tracking-wider" style={{ color: 'rgba(255,255,255,0.3)', fontFamily: "'DM Sans', sans-serif" }}>Price</p>
+                            <p className="truncate text-xl font-black" style={{ color: '#818cf8', fontFamily: "'Syne', sans-serif", letterSpacing: '-0.02em' }}>
                                 ₹ {car.price?.toLocaleString('en-IN')}
-                            </p>
-                            <p className="mt-1 text-[11px]" style={{ color: 'rgba(255,255,255,0.35)', fontFamily: "'DM Sans', sans-serif" }}>
-                                {car.reviewCount ? `${car.reviewCount} review${car.reviewCount > 1 ? 's' : ''}` : 'No reviews yet'}
                             </p>
                         </div>
                         <button
-                            className="view-btn rounded-xl px-4 py-2 text-xs font-bold text-white"
-                            style={{ background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', fontFamily: "'DM Sans', sans-serif" }}
+                            className="view-btn flex-shrink-0 rounded-xl bg-[linear-gradient(135deg,#6366f1,#8b5cf6)] px-5 py-2.5 text-[11px] font-bold text-white"
+                            style={{ fontFamily: "'DM Sans', sans-serif" }}
                             onClick={() => navigate(`/user/car/${car._id}`)}
                         >
                             View

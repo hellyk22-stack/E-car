@@ -124,7 +124,7 @@ const CAR_IMAGES_BY_TYPE = {
     'Luxury':    'https://images.unsplash.com/photo-1555215695-3004980ad54e?w=600&q=80',
 }
 
-const DEFAULT_IMAGE = 'https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?w=600&q=80'
+export const DEFAULT_CAR_IMAGE = 'https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?w=600&q=80'
 
 /**
  * Main resolver — call this everywhere instead of inline carImages maps
@@ -132,7 +132,7 @@ const DEFAULT_IMAGE = 'https://images.unsplash.com/photo-1492144534655-ae79c964c
  * @returns {string} image URL
  */
 export const getCarImage = (car) => {
-    if (!car) return DEFAULT_IMAGE
+    if (!car) return DEFAULT_CAR_IMAGE
 
     // 1. Cloudinary URL stored in DB (highest priority)
     if (car.image && car.image.trim() !== '') return car.image
@@ -160,7 +160,7 @@ export const getCarImage = (car) => {
     if (car.type && CAR_IMAGES_BY_TYPE[car.type]) return CAR_IMAGES_BY_TYPE[car.type]
 
     // 6. Default fallback
-    return DEFAULT_IMAGE
+    return DEFAULT_CAR_IMAGE
 }
 
 export default getCarImage

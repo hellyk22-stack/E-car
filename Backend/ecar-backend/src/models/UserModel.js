@@ -39,7 +39,23 @@ const userSchema = new Schema({
         type: String,
         default: "active",
         enum: ["active", "inactive", "deleted"]
-    }
+    },
+    subscription: {
+        plan: {
+            type: String,
+            enum: ["explorer", "pro_buyer", "elite"],
+            default: "explorer",
+        },
+        planExpiry: {
+            type: Date,
+            default: null,
+        },
+        billingCycle: {
+            type: String,
+            enum: ["monthly", "annual", null],
+            default: null,
+        },
+    },
 }, { timestamps: true })
 
 module.exports = mongoose.model("users", userSchema)

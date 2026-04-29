@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { toast } from 'react-toastify'
 import axiosInstance from '../../utils/axiosInstance'
 import StatusTimeline from '../bookings/StatusTimeline'
-import { formatDateTimeLabel, getStatusTone, statusLabels } from '../../utils/bookingUtils'
+import { formatDateTimeLabel, getStatusTone, normalizeBookingType, statusLabels } from '../../utils/bookingUtils'
 
 const BookingDetailModal = ({ booking, onClose, onUpdated }) => {
     const [staff, setStaff] = useState({
@@ -100,7 +100,7 @@ const BookingDetailModal = ({ booking, onClose, onUpdated }) => {
                                     View uploaded license
                                 </a>
                             )}
-                            {booking.bookingType === 'home_delivery' && (
+                            {normalizeBookingType(booking.bookingType) === 'home' && (
                                 <div className="mt-4 rounded-2xl p-4" style={{ background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.18)' }}>
                                     <p className="text-sm text-white">{booking.userDetails?.address || '--'}</p>
                                     <p className="mt-1 text-xs" style={{ color: '#bfdbfe', fontFamily: "'DM Sans', sans-serif" }}>Pincode: {booking.userDetails?.pincode || '--'}</p>
