@@ -47,7 +47,11 @@ app.get("/test", (req, res) => {
     res.json({ message: "E-CAR backend running!!" })
 })
 
-const PORT = process.env.PORT || 3000
-app.listen(PORT, () => {
-    console.log(`Server started on PORT ${PORT}`)
-})
+if (require.main === module) {
+    const PORT = process.env.PORT || 3000
+    app.listen(PORT, () => {
+        console.log(`Server started on PORT ${PORT}`)
+    })
+}
+
+module.exports = app
